@@ -1,0 +1,19 @@
+# Dockerfile for Fastify / Node / Bun Backend
+FROM oven/bun:1 AS base
+
+WORKDIR /app
+
+# Copy package management files
+COPY package.json bun.lock ./
+
+# Install dependencies
+RUN bun install
+
+# Copy application source code
+COPY . .
+
+# Expose backend API port
+EXPOSE 4000
+
+# Start backend server
+CMD ["bun", "run", "start"]
