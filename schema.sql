@@ -31,7 +31,7 @@ CREATE TABLE users (
     id_users SERIAL PRIMARY KEY,
     username VARCHAR(50) NOT NULL,
     email VARCHAR(100) NOT NULL UNIQUE,
-    password VARCHAR(60),
+    password VARCHAR(255),
     no_telp VARCHAR(20),
     id_role INT NOT NULL,
     status VARCHAR(20) CHECK (status IN ('active', 'inactive', 'suspended')) DEFAULT 'active',

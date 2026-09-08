@@ -4,25 +4,7 @@ import React, { useState, useEffect } from "react";
 
 const API = import.meta.env.VITE_API_URL || "http://localhost:4000";
 
-interface BackupRow {
-  id: string;
-  fileName: string;
-  type: string;
-  size: string;
-  records: number;
-  user: string;
-  createdAt: string;
-  status: string;
-}
-
-interface Summary {
-  total: number;
-  totalSizeBytes: number;
-  successCount: number;
-  latest: string | null;
-}
-
-function formatTotalSize(size: number): string {
+function formatTotalSize(size) {
   if (size >= 1024 * 1024) return `${(size / (1024 * 1024)).toFixed(1).replace(".", ",")} MB`;
   if (size >= 1024) return `${Math.round(size / 1024)} KB`;
   return `${size} B`;
@@ -30,16 +12,16 @@ function formatTotalSize(size: number): string {
 
 export default function BackupPage() {
   const [isBackingUp, setIsBackingUp] = useState(false);
-  const [busyId, setBusyId] = useState<string | null>(null);
+  const [busyId, setBusyId] = useState(null);
   const [filter, setFilter] = useState("Semua");
   const [term, setTerm] = useState("");
-  const [notice, setNotice] = useState<{ message: string; type: "success" | "error" } | null>(null);
-  const [rows, setRows] = useState<BackupRow[]>([]);
+  const [notice, setNotice] = useState(null);
+  const [rows, setRows] = useState([]);
   const [total, setTotal] = useState(0);
   const [totalPages, setTotalPages] = useState(1);
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
-  const [summary, setSummary] = useState<Summary>({ total: 0, totalSizeBytes: 0, successCount: 0, latest: null });
+  const [summary, setSummary] = useState({ total: 0, totalSizeBytes: 0, successCount: 0, latest: null });
 
   useEffect(() => {
     if (!notice) return;
@@ -47,10 +29,10 @@ export default function BackupPage() {
     return () => clearTimeout(t);
   }, [notice]);
 
-  const showNotice = (message: string, type: "success" | "error" = "success") =>
+  const showNotice = (message, type = "success") =>
     setNotice({ message, type });
 
-  const fetchPage = (targetPage: number, t: string, f: string) => {
+  const fetchPage = (targetPage, t, f) => {
     setLoading(true);
     const p = new URLSearchParams({ page: String(targetPage), limit: "10" });
     if (t) p.set("search", t);
@@ -75,18 +57,17 @@ export default function BackupPage() {
 
   useEffect(() => {
     fetchPage(1, "", "Semua");
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const onTerm = (v: string) => {
+  const onTerm = (v) => {
     setTerm(v);
     fetchPage(1, v, filter);
   };
-  const onFilter = (v: string) => {
+  const onFilter = (v) => {
     setFilter(v);
     fetchPage(1, term, v);
   };
-  const gotoPage = (t: number) => fetchPage(t, term, filter);
+  const gotoPage = (t) => fetchPage(t, term, filter);
   const refresh = () => fetchPage(page, term, filter);
 
   const handleBackup = async () => {
@@ -112,7 +93,7 @@ export default function BackupPage() {
     }
   };
 
-  const handleDownload = async (b: BackupRow) => {
+  const handleDownload = async (b) => {
     try {
       const res = await fetch(`${API}/api/admin/backup/${b.id}/download`, {
         headers: { Authorization: `Bearer ${getToken()}` },
@@ -135,7 +116,7 @@ export default function BackupPage() {
     }
   };
 
-  const handleRestore = async (b: BackupRow) => {
+  const handleRestore = async (b) => {
     if (!window.confirm(`Pulihkan database dari "${b.fileName}"? Data saat ini akan ditimpa.`)) return;
     setBusyId(b.id);
     try {
@@ -156,7 +137,7 @@ export default function BackupPage() {
     }
   };
 
-  const handleDelete = async (b: BackupRow) => {
+  const handleDelete = async (b) => {
     if (!window.confirm(`Hapus backup "${b.fileName}"?`)) return;
     setBusyId(b.id);
     try {
@@ -415,21 +396,7 @@ export default function BackupPage() {
   );
 }
 
-function StatCard({
-  label,
-  value,
-  change,
-  icon,
-  color,
-  sub,
-}: {
-  label: string;
-  value: string;
-  change?: string;
-  icon: React.ReactNode;
-  color: string;
-  sub?: string;
-}) {
+function StatCard({ label, value, change, icon, color, sub }) {
   return (
     <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 p-5 shadow-sm hover:shadow-md transition">
       <div className="flex items-center justify-between">
@@ -447,19 +414,9 @@ function StatCard({
   );
 }
 
-function Pagination({
-  page,
-  totalPages,
-  total,
-  onChange,
-}: {
-  page: number;
-  totalPages: number;
-  total: number;
-  onChange: (page: number) => void;
-}) {
+function Pagination({ page, totalPages, total, onChange }) {
   if (!totalPages || totalPages <= 1) return null;
-  const pages: number[] = [];
+  const pages = [];
   const start = Math.max(1, Math.min(page - 2, totalPages - 4));
   const end = Math.min(totalPages, start + 4);
   for (let i = start; i <= end; i++) pages.push(i);
@@ -505,7 +462,7 @@ function Pagination({
   );
 }
 
-function getToken(): string {
+function getToken() {
   try {
     const raw = localStorage.getItem("creator-agency-auth");
     if (raw) return JSON.parse(raw).token || "";
@@ -513,7 +470,7 @@ function getToken(): string {
   return "";
 }
 
-function getUsername(): string | null {
+function getUsername() {
   try {
     const raw = localStorage.getItem("creator-agency-auth");
     if (raw) return JSON.parse(raw).username || null;

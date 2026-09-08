@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { eq, like, or, isNull, isNotNull, sql, and, desc, not } from "drizzle-orm";
+import { eq, like, or, isNull, sql, and, desc, not } from "drizzle-orm";
 import { db, schema } from "../db";
 
 export const userRoutes = new Hono();
@@ -33,13 +33,12 @@ userRoutes.get("/", async (c) => {
     conditions.push(eq(schema.users.idRole, Number(role)));
   }
 
-  // Never expose superadmin users or the superadmin role through the web.
   conditions.push(not(eq(schema.role.role, "superadmin")));
 
   const where = conditions.length > 0 ? and(...conditions) : undefined;
 
   const [countRow] = await db
-    .select({ count: sql<number>`count(*)::int` })
+    .select({ count: sql`count(*)::int` })
     .from(schema.users)
     .leftJoin(schema.role, eq(schema.users.idRole, schema.role.idRole))
     .where(where);

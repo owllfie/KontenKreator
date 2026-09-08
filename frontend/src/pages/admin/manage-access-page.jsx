@@ -5,22 +5,10 @@ import { Shield, ChevronDown, ChevronRight } from "lucide-react";
 
 const API = import.meta.env.VITE_API_URL || "http://localhost:4000";
 
-interface Role {
-  idRole: number;
-  role: string;
-  createdAt: string;
-}
-
-interface Permission {
-  idPermission: number;
-  namaPermission: string;
-  fitur: string;
-}
-
 export default function ManageAccessPage() {
-  const [roles, setRoles] = useState<Role[]>([]);
-  const [expandedRole, setExpandedRole] = useState<number | null>(null);
-  const [rolePermissions, setRolePermissions] = useState<Record<number, Permission[]>>({});
+  const [roles, setRoles] = useState([]);
+  const [expandedRole, setExpandedRole] = useState(null);
+  const [rolePermissions, setRolePermissions] = useState({});
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -30,7 +18,7 @@ export default function ManageAccessPage() {
           headers: { Authorization: `Bearer ${getToken()}` },
         });
         const json = await res.json();
-        setRoles((json.data || []).filter((r: any) => r.role !== "superadmin"));
+        setRoles((json.data || []).filter((r) => r.role !== "superadmin"));
       } catch (e) {
         console.error(e);
       } finally {
@@ -40,7 +28,7 @@ export default function ManageAccessPage() {
     fetchRoles();
   }, []);
 
-  const toggleRole = async (roleId: number) => {
+  const toggleRole = async (roleId) => {
     if (expandedRole === roleId) {
       setExpandedRole(null);
       return;
@@ -148,7 +136,7 @@ export default function ManageAccessPage() {
   );
 }
 
-function getToken(): string {
+function getToken() {
   try {
     const raw = localStorage.getItem("creator-agency-auth");
     if (raw) return JSON.parse(raw).token || "";

@@ -4,13 +4,7 @@ const secretKey = new TextEncoder().encode(
   process.env.JWT_SECRET || "default-development-secret"
 );
 
-export interface JwtPayload {
-  id_users: number;
-  email: string;
-  id_role: number;
-}
-
-export async function signJwt(payload: JwtPayload): Promise<string> {
+export async function signJwt(payload) {
   return new SignJWT({ ...payload })
     .setProtectedHeader({ alg: "HS256" })
     .setIssuedAt()
@@ -18,7 +12,7 @@ export async function signJwt(payload: JwtPayload): Promise<string> {
     .sign(secretKey);
 }
 
-export async function verifyJwt(token: string): Promise<JwtPayload> {
+export async function verifyJwt(token) {
   const { payload } = await jwtVerify(token, secretKey);
-  return payload as unknown as JwtPayload;
+  return payload;
 }

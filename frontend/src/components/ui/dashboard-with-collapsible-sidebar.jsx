@@ -15,11 +15,17 @@ import {
   User,
   LogOut,
   Search,
+  FolderKanban,
+  FileText,
+  FileVideo2,
 } from "lucide-react";
 import UsersPage from "@/pages/admin/users-page";
 import ManageAccessPage from "@/pages/admin/manage-access-page";
 import ActivityLogPage from "@/pages/admin/activity-log-page";
 import TeamsPage from "@/pages/admin/teams-page";
+import ProjectsPage from "@/pages/admin/projects-page";
+import ScriptsPage from "@/pages/admin/scripts-page";
+import ContentsPage from "@/pages/admin/contents-page";
 import BackupPage from "@/pages/admin/backup-page";
 import ChatPanel from "@/components/ui/chat-panel";
 import ProfilePage from "@/pages/admin/profile-page";
@@ -30,6 +36,9 @@ const navItems = [
   { Icon: Home, title: "Dashboard", path: "/dashboard" },
   { Icon: Users, title: "Users", path: "/dashboard/users" },
   { Icon: Layers, title: "Teams", path: "/dashboard/teams" },
+  { Icon: FolderKanban, title: "Projects", path: "/dashboard/projects" },
+  { Icon: FileText, title: "Scripts", path: "/dashboard/scripts" },
+  { Icon: FileVideo2, title: "Contents", path: "/dashboard/contents" },
   { Icon: Shield, title: "Manage Access", path: "/dashboard/manage-access" },
   { Icon: Activity, title: "Activity Log", path: "/dashboard/activity-log" },
   { Icon: Database, title: "Backup Database", path: "/dashboard/backup" },
@@ -185,7 +194,13 @@ const Sidebar = () => {
 };
 
 const DashboardOverview = () => {
-  const [stats, setStats] = useState({ activeUsers: 0, totalProjects: 0 });
+  const [stats, setStats] = useState({
+    activeUsers: 0,
+    totalProjects: 0,
+    totalTeams: 0,
+    totalScripts: 0,
+    totalContents: 0,
+  });
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -195,6 +210,9 @@ const DashboardOverview = () => {
         setStats({
           activeUsers: json?.data?.activeUsers ?? 0,
           totalProjects: json?.data?.totalProjects ?? 0,
+          totalTeams: json?.data?.totalTeams ?? 0,
+          totalScripts: json?.data?.totalScripts ?? 0,
+          totalContents: json?.data?.totalContents ?? 0,
         });
       })
       .catch(console.error)
@@ -205,9 +223,10 @@ const DashboardOverview = () => {
     <div className="w-3/4">
       <div className="grid gap-6 grid-cols-1 sm:grid-cols-2">
         <StatCard label="Active Users" value={stats.activeUsers} icon={Users} accent="bg-blue-500/10 text-blue-500" loading={loading} />
-        <StatCard label="Total Projects" value={stats.totalProjects} icon={Layers} accent="bg-green-500/10 text-green-500" loading={loading} />
-        <StatCard label="Revenue" value={0} icon={Search} accent="bg-purple-500/10 text-purple-500" loading={loading} />
-        <StatCard label="Active Today" value={0} icon={Activity} accent="bg-amber-500/10 text-amber-500" loading={loading} />
+        <StatCard label="Total Teams" value={stats.totalTeams} icon={Layers} accent="bg-purple-500/10 text-purple-500" loading={loading} />
+        <StatCard label="Projects" value={stats.totalProjects} icon={FolderKanban} accent="bg-green-500/10 text-green-500" loading={loading} />
+        <StatCard label="Scripts" value={stats.totalScripts} icon={FileText} accent="bg-amber-500/10 text-amber-500" loading={loading} />
+        <StatCard label="Contents" value={stats.totalContents} icon={FileVideo2} accent="bg-pink-500/10 text-pink-500" loading={loading} />
       </div>
     </div>
   );
@@ -266,6 +285,9 @@ const DashboardLayout = () => {
             <Route index element={<DashboardOverview />} />
             <Route path="users" element={<UsersPage />} />
             <Route path="teams" element={<TeamsPage />} />
+            <Route path="projects" element={<ProjectsPage />} />
+            <Route path="scripts" element={<ScriptsPage />} />
+            <Route path="contents" element={<ContentsPage />} />
             <Route path="manage-access" element={<ManageAccessPage />} />
             <Route path="activity-log" element={<ActivityLogPage />} />
             <Route path="backup" element={<BackupPage />} />

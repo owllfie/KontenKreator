@@ -34,7 +34,7 @@ activityLogRoutes.get("/", async (c) => {
   const where = conditions.length > 0 ? and(...conditions) : undefined;
 
   const [countRow] = await db
-    .select({ count: sql<number>`count(*)::int` })
+    .select({ count: sql`count(*)::int` })
     .from(schema.activityLogs)
     .leftJoin(schema.users, eq(schema.activityLogs.idUser, schema.users.idUsers))
     .leftJoin(schema.role, eq(schema.users.idRole, schema.role.idRole))

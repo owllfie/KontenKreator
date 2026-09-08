@@ -5,7 +5,7 @@ import { Eye, EyeOff, Save, CheckCircle2, AlertCircle } from "lucide-react";
 
 const API = import.meta.env.VITE_API_URL || "http://localhost:4000";
 
-function getToken(): string {
+function getToken() {
   try {
     const raw = localStorage.getItem("creator-agency-auth");
     if (raw) return JSON.parse(raw).token || "";
@@ -18,7 +18,7 @@ export default function ProfilePage() {
   const [password, setPassword] = useState({ currentPassword: "", newPassword: "", confirmPassword: "" });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const [message, setMessage] = useState(null);
 
   useEffect(() => {
     const load = async () => {
@@ -56,7 +56,7 @@ export default function ProfilePage() {
       if (!res.ok) throw new Error(json?.message || "Gagal menyimpan");
       setMessage({ type: "success", text: "Profil berhasil diperbarui." });
     } catch (e) {
-      setMessage({ type: "error", text: (e as Error).message });
+      setMessage({ type: "error", text: e.message });
     } finally {
       setSaving(false);
     }
@@ -92,7 +92,7 @@ export default function ProfilePage() {
       setPassword({ currentPassword: "", newPassword: "", confirmPassword: "" });
       setMessage({ type: "success", text: "Password berhasil diubah." });
     } catch (e) {
-      setMessage({ type: "error", text: (e as Error).message });
+      setMessage({ type: "error", text: e.message });
     } finally {
       setSaving(false);
     }
@@ -171,19 +171,7 @@ export default function ProfilePage() {
   );
 }
 
-function InputField({
-  label,
-  value,
-  onChange,
-  type = "text",
-  placeholder,
-}: {
-  label: string;
-  value: string;
-  onChange: (v: string) => void;
-  type?: string;
-  placeholder?: string;
-}) {
+function InputField({ label, value, onChange, type = "text", placeholder }) {
   const [show, setShow] = useState(false);
   const isPassword = type === "password";
   return (

@@ -8,26 +8,9 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 
 const API = import.meta.env.VITE_API_URL || "http://localhost:4000";
 
-interface UserRow {
-  idUsers: number;
-  username: string;
-  email: string;
-  noTelp: string | null;
-  idRole: number;
-  status: string;
-  createdAt: string;
-  deletedAt: string | null;
-  roleName: string;
-}
-
-interface Role {
-  idRole: number;
-  role: string;
-}
-
 export default function UsersPage() {
-  const [users, setUsers] = useState<UserRow[]>([]);
-  const [roles, setRoles] = useState<Role[]>([]);
+  const [users, setUsers] = useState([]);
+  const [roles, setRoles] = useState([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(0);
@@ -39,7 +22,7 @@ export default function UsersPage() {
 
   const [editModal, setEditModal] = useState(false);
   const [createModal, setCreateModal] = useState(false);
-  const [editUser, setEditUser] = useState<UserRow | null>(null);
+  const [editUser, setEditUser] = useState(null);
   const [form, setForm] = useState({
     username: "",
     email: "",
@@ -49,12 +32,12 @@ export default function UsersPage() {
     status: "active",
   });
 
-  const [deleteDialog, setDeleteDialog] = useState<{ open: boolean; user: UserRow | null; type: "soft" | "permanent" }>({
+  const [deleteDialog, setDeleteDialog] = useState({
     open: false,
     user: null,
     type: "soft",
   });
-  const [resetDialog, setResetDialog] = useState<{ open: boolean; user: UserRow | null }>({
+  const [resetDialog, setResetDialog] = useState({
     open: false,
     user: null,
   });
@@ -75,7 +58,7 @@ export default function UsersPage() {
         headers: { Authorization: `Bearer ${getToken()}` },
       });
       const json = await res.json();
-      const rows = (json.data?.rows || []).filter((r: any) => r.roleName !== "superadmin");
+      const rows = (json.data?.rows || []).filter((r) => r.roleName !== "superadmin");
       setUsers(rows);
       setTotal(json.data?.total || 0);
       setTotalPages(json.data?.totalPages || 0);
@@ -92,7 +75,7 @@ export default function UsersPage() {
         headers: { Authorization: `Bearer ${getToken()}` },
       });
       const json = await res.json();
-      const list = (json.data || []).filter((r: any) => r.role !== "superadmin");
+      const list = (json.data || []).filter((r) => r.role !== "superadmin");
       setRoles(list);
     } catch (e) {
       console.error(e);
@@ -111,7 +94,7 @@ export default function UsersPage() {
     setPage(1);
   }, [search, statusFilter, roleFilter, showDeleted]);
 
-  const openEdit = (user: UserRow) => {
+  const openEdit = (user) => {
     setEditUser(user);
     setForm({
       username: user.username,
@@ -193,7 +176,7 @@ export default function UsersPage() {
     }
   };
 
-  const handleRestore = async (user: UserRow) => {
+  const handleRestore = async (user) => {
     try {
       await fetch(`${API}/api/admin/users/${user.idUsers}/restore`, {
         method: "PUT",
@@ -212,7 +195,7 @@ export default function UsersPage() {
     {
       key: "roleName",
       label: "Role",
-      render: (row: UserRow) => (
+      render: (row) => (
         <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-500/10 text-blue-600 dark:text-blue-400">
           {row.roleName}
         </span>
@@ -221,8 +204,8 @@ export default function UsersPage() {
     {
       key: "status",
       label: "Status",
-      render: (row: UserRow) => {
-        const colors: Record<string, string> = {
+      render: (row) => {
+        const colors = {
           active: "bg-green-500/10 text-green-600 dark:text-green-400",
           inactive: "bg-gray-500/10 text-gray-600 dark:text-gray-400",
           suspended: "bg-red-500/10 text-red-600 dark:text-red-400",
@@ -237,7 +220,7 @@ export default function UsersPage() {
     {
       key: "actions",
       label: "Actions",
-      render: (row: UserRow) => (
+      render: (row) => (
         <div className="flex items-center gap-1">
           {row.deletedAt ? (
             <button
@@ -431,17 +414,7 @@ export default function UsersPage() {
   );
 }
 
-function InputField({
-  label,
-  value,
-  onChange,
-  type = "text",
-}: {
-  label: string;
-  value: string;
-  onChange: (v: string) => void;
-  type?: string;
-}) {
+function InputField({ label, value, onChange, type = "text" }) {
   const [show, setShow] = useState(false);
   const isPassword = type === "password";
   return (
@@ -468,17 +441,7 @@ function InputField({
   );
 }
 
-function SelectField({
-  label,
-  value,
-  onChange,
-  options,
-}: {
-  label: string;
-  value: string;
-  onChange: (v: string) => void;
-  options: { value: string; label: string }[];
-}) {
+function SelectField({ label, value, onChange, options }) {
   return (
     <div>
       <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5">{label}</label>
@@ -497,7 +460,7 @@ function SelectField({
   );
 }
 
-function getToken(): string {
+function getToken() {
   try {
     const raw = localStorage.getItem("creator-agency-auth");
     if (raw) return JSON.parse(raw).token || "";

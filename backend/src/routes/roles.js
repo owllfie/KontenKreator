@@ -13,7 +13,6 @@ roleRoutes.get("/", async (c) => {
     })
     .from(schema.role)
     .where(
-      // Never expose the superadmin role through the web.
       and(isNull(schema.role.deletedAt), not(eq(schema.role.role, "superadmin")))
     );
 

@@ -1,16 +1,7 @@
 const RECAPTCHA_VERIFY_URL =
   "https://www.google.com/recaptcha/api/siteverify";
 
-export interface RecaptchaVerifyResult {
-  success: boolean;
-  score?: number;
-  errorCodes?: string[];
-  hostname?: string;
-}
-
-export async function verifyRecaptcha(
-  token: string
-): Promise<RecaptchaVerifyResult> {
+export async function verifyRecaptcha(token) {
   if (!token) {
     return { success: false, errorCodes: ["missing-input-response"] };
   }
@@ -27,12 +18,7 @@ export async function verifyRecaptcha(
       body: new URLSearchParams({ secret, response: token }),
     });
 
-    const data = (await response.json()) as {
-      success: boolean;
-      score?: number;
-      "error-codes"?: string[];
-      hostname?: string;
-    };
+    const data = await response.json();
 
     return {
       success: data.success === true,

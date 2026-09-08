@@ -10,13 +10,13 @@ const TABLES = [
   "content", "content_revision", "script", "script_revision",
 ];
 
-function formatBytes(bytes: number): string {
+function formatBytes(bytes) {
   if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1).replace(".", ",")} MB`;
   if (bytes >= 1024) return `${Math.round(bytes / 1024)} KB`;
   return `${bytes} B`;
 }
 
-function formatLocale(date: Date | string | null): string {
+function formatLocale(date) {
   if (!date) return "-";
   const d = new Date(date);
   const dd = String(d.getDate()).padStart(2, "0");
@@ -27,13 +27,13 @@ function formatLocale(date: Date | string | null): string {
   return `${dd}-${mm}-${yyyy} ${hh}.${mi}`;
 }
 
-async function buildDump(): Promise<{ payload: string; records: number }> {
-  const dump: Record<string, any[]> = {};
+async function buildDump() {
+  const dump = {};
   let records = 0;
   for (const table of TABLES) {
     const rows = await db.execute(sql.raw(`SELECT * FROM "${table}"`));
     dump[table] = rows;
-    records += (rows as any[]).length;
+    records += rows.length;
   }
   return {
     payload: JSON.stringify(dump, null, 2),
@@ -55,7 +55,7 @@ backupRoutes.get("/", async (c) => {
     const where = conds.length > 0 ? and(...conds) : undefined;
 
     const [countRow] = await db
-      .select({ count: sql<number>`count(*)::int` })
+      .select({ count: sql`count(*)::int` })
       .from(schema.backupHistory)
       .where(where);
 
@@ -68,10 +68,10 @@ backupRoutes.get("/", async (c) => {
       .offset(offset);
 
     const [sumRow] = await db.select({
-      total: sql<number>`count(*)::int`,
-      size: sql<number>`coalesce(sum(size_bytes),0)::int`,
-      successCount: sql<number>`count(*) filter (where status = 'Berhasil')::int`,
-      latest: sql<string | null>`max(created_at)`,
+      total: sql`count(*)::int`,
+      size: sql`coalesce(sum(size_bytes),0)::int`,
+      successCount: sql`count(*) filter (where status = 'Berhasil')::int`,
+      latest: sql`max(created_at)`,
     }).from(schema.backupHistory);
 
     const data = rows.map((b) => ({
@@ -99,14 +99,14 @@ backupRoutes.get("/", async (c) => {
       },
     });
   } catch (error) {
-    return c.json({ status: "error", message: (error as Error).message }, 500);
+    return c.json({ status: "error", message: error.message }, 500);
   }
 });
 
 backupRoutes.post("/", async (c) => {
   try {
     const body = await c.req.json().catch(() => ({}));
-    const createdBy = (body?.createdBy as string) || null;
+    const createdBy = body?.createdBy || null;
 
     const { payload, records } = await buildDump();
     const fileName = `kontenkreator_backup_${Date.now()}.json`;
@@ -127,7 +127,7 @@ backupRoutes.post("/", async (c) => {
 
     return c.json({ status: "ok", fileName });
   } catch (error) {
-    return c.json({ status: "error", message: (error as Error).message }, 500);
+    return c.json({ status: "error", message: error.message }, 500);
   }
 });
 
@@ -151,7 +151,7 @@ backupRoutes.get("/:id/download", async (c) => {
     c.header("Content-Disposition", `attachment; filename="${b.fileName}"`);
     return c.body(b.fileContent);
   } catch (error) {
-    return c.json({ status: "error", message: (error as Error).message }, 500);
+    return c.json({ status: "error", message: error.message }, 500);
   }
 });
 
@@ -174,7 +174,7 @@ backupRoutes.post("/:id/restore", async (c) => {
     const dump = JSON.parse(b.fileContent);
     for (const table of TABLES) {
       await db.execute(sql.raw(`DELETE FROM "${table}"`));
-      const rows: any[] = dump[table] || [];
+      const rows = dump[table] || [];
       if (rows.length > 0) {
         const keys = Object.keys(rows[0]);
         for (const row of rows) {
@@ -189,7 +189,7 @@ backupRoutes.post("/:id/restore", async (c) => {
 
     return c.json({ status: "ok", message: "Database berhasil dipulihkan" });
   } catch (error) {
-    return c.json({ status: "error", message: (error as Error).message }, 500);
+    return c.json({ status: "error", message: error.message }, 500);
   }
 });
 
@@ -199,6 +199,6 @@ backupRoutes.delete("/:id", async (c) => {
     await db.delete(schema.backupHistory).where(eq(schema.backupHistory.idBackup, id));
     return c.json({ status: "ok", message: "Backup dihapus" });
   } catch (error) {
-    return c.json({ status: "error", message: (error as Error).message }, 500);
+    return c.json({ status: "error", message: error.message }, 500);
   }
 });

@@ -5,9 +5,8 @@ import path from "node:path";
 export const chatRoutes = new Hono();
 
 const GROQ_URL = "https://api.groq.com/openai/v1/chat/completions";
-const MODEL = "llama-3.3-70b-versatile";
-
-function readGroqKey(): string {
+const MODEL = process.env.GROQ_MODEL || "llama3-8b-8192";
+function readGroqKey() {
   if (process.env.GROQ_API_KEY) return process.env.GROQ_API_KEY;
 
   const root = process.cwd();
@@ -41,9 +40,7 @@ chatRoutes.post("/", async (c) => {
     }
 
     const body = await c.req.json().catch(() => ({}));
-    const messages: { role: string; content: string }[] = Array.isArray(body?.messages)
-      ? body.messages
-      : [];
+    const messages = Array.isArray(body?.messages) ? body.messages : [];
     const lastUser = [...messages].reverse().find((m) => m.role === "user");
     if (!lastUser?.content) {
       return c.json({ status: "error", message: "Tidak ada pesan yang dikirim" }, 400);
@@ -100,7 +97,7 @@ chatRoutes.post("/", async (c) => {
               const data = trimmed.slice(5).trim();
               if (data === "[DONE]") continue;
 
-              let json: any;
+              let json;
               try {
                 json = JSON.parse(data);
               } catch {
@@ -123,7 +120,7 @@ chatRoutes.post("/", async (c) => {
 
     return c.body(stream);
   } catch (error) {
-    return c.json({ status: "error", message: (error as Error).message }, 500);
+    return c.json({ status: "error", message: error.message }, 500);
   }
 });
 
@@ -131,6 +128,6 @@ chatRoutes.get("/health", async (c) => {
   return c.json({ status: hasKey() ? "ok" : "missing-key" });
 });
 
-function hasKey(): boolean {
+function hasKey() {
   return Boolean(readGroqKey());
 }

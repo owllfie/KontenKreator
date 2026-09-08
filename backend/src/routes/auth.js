@@ -12,17 +12,6 @@ const GOOGLE_USERINFO_URL = "https://www.googleapis.com/oauth2/v2/userinfo";
 
 const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:5173";
 
-interface GoogleUserInfo {
-  id: string;
-  email: string;
-  verified_email?: boolean;
-  name: string;
-  given_name?: string;
-  family_name?: string;
-  picture?: string;
-  locale?: string;
-}
-
 authRoutes.get("/google", (c) => {
   const clientId = process.env.GOOGLE_CLIENT_ID;
   const redirectUri = process.env.GOOGLE_REDIRECT_URI;
@@ -63,9 +52,9 @@ authRoutes.get("/google/callback", async (c) => {
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: new URLSearchParams({
         code,
-        client_id: process.env.GOOGLE_CLIENT_ID!,
-        client_secret: process.env.GOOGLE_CLIENT_SECRET!,
-        redirect_uri: process.env.GOOGLE_REDIRECT_URI!,
+        client_id: process.env.GOOGLE_CLIENT_ID,
+        client_secret: process.env.GOOGLE_CLIENT_SECRET,
+        redirect_uri: process.env.GOOGLE_REDIRECT_URI,
         grant_type: "authorization_code",
       }),
     });
@@ -75,9 +64,7 @@ authRoutes.get("/google/callback", async (c) => {
       return c.text(`Failed to exchange code: ${errText}`, 400);
     }
 
-    const tokenData = (await tokenResponse.json()) as {
-      access_token: string;
-    };
+    const tokenData = await tokenResponse.json();
 
     const userInfoResponse = await fetch(GOOGLE_USERINFO_URL, {
       headers: { Authorization: `Bearer ${tokenData.access_token}` },
@@ -87,7 +74,7 @@ authRoutes.get("/google/callback", async (c) => {
       return c.text("Failed to fetch Google user info", 400);
     }
 
-    const googleUser = (await userInfoResponse.json()) as GoogleUserInfo;
+    const googleUser = await userInfoResponse.json();
 
     if (!googleUser.email) {
       return c.text("Google account has no verified email", 400);
@@ -156,13 +143,13 @@ authRoutes.get("/google/callback", async (c) => {
     );
   } catch (err) {
     return c.text(
-      `Google OAuth callback error: ${(err as Error).message}`,
+      `Google OAuth callback error: ${err.message}`,
       500
     );
   }
 });
 
-async function getBody(c: any): Promise<Record<string, unknown> | null> {
+async function getBody(c) {
   try {
     return await c.req.json();
   } catch {
@@ -170,10 +157,7 @@ async function getBody(c: any): Promise<Record<string, unknown> | null> {
   }
 }
 
-async function verifyRecaptchaOrFail(
-  c: any,
-  token?: string
-): Promise<boolean> {
+async function verifyRecaptchaOrFail(c, token) {
   const result = await verifyRecaptcha(token || "");
   if (!result.success) {
     c.status(400);
@@ -183,11 +167,7 @@ async function verifyRecaptchaOrFail(
   return true;
 }
 
-async function createUserRecord(input: {
-  username: string;
-  email: string;
-  password: string | null;
-}): Promise<{ user: typeof schema.users.$inferSelect; isNew: boolean }> {
+async function createUserRecord(input) {
   const existing = await db
     .select()
     .from(schema.users)
@@ -242,7 +222,7 @@ authRoutes.post("/register", async (c) => {
     return c.json({ status: "error", message: "Invalid JSON body" }, 400);
   }
 
-  const recaptchaToken = (body.recaptchaToken as string) || "";
+  const recaptchaToken = body.recaptchaToken || "";
   const ok = await verifyRecaptchaOrFail(c, recaptchaToken);
   if (!ok) {
     return c.json(
@@ -251,9 +231,9 @@ authRoutes.post("/register", async (c) => {
     );
   }
 
-  const username = (body.username as string) || "";
-  const email = (body.email as string) || "";
-  const password = (body.password as string) || "";
+  const username = body.username || "";
+  const email = body.email || "";
+  const password = body.password || "";
 
   if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
     return c.json({ status: "error", message: "Valid email is required" }, 400);
@@ -296,7 +276,7 @@ authRoutes.post("/register", async (c) => {
     });
   } catch (err) {
     return c.json(
-      { status: "error", message: (err as Error).message },
+      { status: "error", message: err.message },
       500
     );
   }
@@ -308,7 +288,7 @@ authRoutes.post("/login", async (c) => {
     return c.json({ status: "error", message: "Invalid JSON body" }, 400);
   }
 
-  const recaptchaToken = (body.recaptchaToken as string) || "";
+  const recaptchaToken = body.recaptchaToken || "";
   const ok = await verifyRecaptchaOrFail(c, recaptchaToken);
   if (!ok) {
     return c.json(
@@ -317,8 +297,8 @@ authRoutes.post("/login", async (c) => {
     );
   }
 
-  const email = (body.username as string) || "";
-  const password = (body.password as string) || "";
+  const email = body.username || "";
+  const password = body.password || "";
 
   if (!email) {
     return c.json({ status: "error", message: "Username is required" }, 400);
@@ -335,7 +315,7 @@ authRoutes.post("/login", async (c) => {
 
   if (!user || !user.password) {
     return c.json(
-      { status: "error", message: "Invalid email or password" },
+      { status: "error", message: "Invalid username or password" },
       401
     );
   }
@@ -343,7 +323,7 @@ authRoutes.post("/login", async (c) => {
   const passwordValid = await Bun.password.verify(password, user.password);
   if (!passwordValid) {
     return c.json(
-      { status: "error", message: "Invalid email or password" },
+      { status: "error", message: "Invalid username or password" },
       401
     );
   }
@@ -392,11 +372,11 @@ authRoutes.put("/me", async (c) => {
       return c.json({ status: "error", message: "Invalid JSON body" }, 400);
     }
 
-    const username = (body.username as string)?.trim();
-    const email = (body.email as string)?.trim();
-    const noTelp = (body.noTelp as string)?.trim() || null;
-    const currentPassword = (body.currentPassword as string) || "";
-    const newPassword = (body.newPassword as string) || "";
+    const username = body.username?.trim();
+    const email = body.email?.trim();
+    const noTelp = body.noTelp?.trim() || null;
+    const currentPassword = body.currentPassword || "";
+    const newPassword = body.newPassword || "";
 
     if (!username) {
       return c.json({ status: "error", message: "Username is required" }, 400);
@@ -409,7 +389,6 @@ authRoutes.put("/me", async (c) => {
       return c.json({ status: "error", message: "Password must be at least 6 characters" }, 400);
     }
 
-    // Prevent another user (or newly registered user) from taking this email.
     if (email !== user.email) {
       const [dup] = await db
         .select()
@@ -423,7 +402,6 @@ authRoutes.put("/me", async (c) => {
 
     let password = user.password;
     if (newPassword) {
-      // Require the current password before allowing a password change.
       if (!user.password) {
         return c.json({ status: "error", message: "Set a password first to change it" }, 400);
       }
@@ -452,7 +430,7 @@ authRoutes.put("/me", async (c) => {
       },
     });
   } catch (err) {
-    return c.json({ status: "error", message: (err as Error).message }, 401);
+    return c.json({ status: "error", message: err.message }, 401);
   }
 });
 
@@ -486,13 +464,13 @@ authRoutes.get("/me", async (c) => {
     });
   } catch (err) {
     return c.json(
-      { status: "error", message: (err as Error).message },
+      { status: "error", message: err.message },
       401
     );
   }
 });
 
-async function ensureUniqueUsername(base: string): Promise<string> {
+async function ensureUniqueUsername(base) {
   const sanitized = base
     .toLowerCase()
     .replace(/[^a-z0-9_.]/g, "")

@@ -6,22 +6,7 @@ import { DataTable } from "@/components/ui/data-table";
 
 const API = import.meta.env.VITE_API_URL || "http://localhost:4000";
 
-interface LogRow {
-  idLog: number;
-  idUser: number;
-  aksi: string;
-  namaTabel: string;
-  idReferensi: number;
-  keterangan: string | null;
-  oldValues: string | null;
-  newValues: string | null;
-  ipAddress: string | null;
-  userAgent: string | null;
-  createdAt: string;
-  username: string | null;
-}
-
-const aksiIcons: Record<string, typeof Activity> = {
+const aksiIcons = {
   CREATE: FileText,
   UPDATE: Pencil,
   DELETE: Trash2,
@@ -29,7 +14,7 @@ const aksiIcons: Record<string, typeof Activity> = {
   LOGIN: LogIn,
 };
 
-const aksiColors: Record<string, string> = {
+const aksiColors = {
   CREATE: "bg-green-500/10 text-green-600 dark:text-green-400",
   UPDATE: "bg-blue-500/10 text-blue-600 dark:text-blue-400",
   DELETE: "bg-red-500/10 text-red-600 dark:text-red-400",
@@ -38,7 +23,7 @@ const aksiColors: Record<string, string> = {
 };
 
 export default function ActivityLogPage() {
-  const [logs, setLogs] = useState<LogRow[]>([]);
+  const [logs, setLogs] = useState([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(0);
@@ -83,7 +68,7 @@ export default function ActivityLogPage() {
     {
       key: "aksi",
       label: "Action",
-      render: (row: LogRow) => {
+      render: (row) => {
         const Icon = aksiIcons[row.aksi] || Activity;
         const color = aksiColors[row.aksi] || "bg-gray-500/10 text-gray-600";
         return (
@@ -100,14 +85,14 @@ export default function ActivityLogPage() {
     {
       key: "ipAddress",
       label: "IP Address",
-      render: (row: LogRow) => (
+      render: (row) => (
         <span className="font-mono text-xs">{row.ipAddress || "—"}</span>
       ),
     },
     {
       key: "createdAt",
       label: "Timestamp",
-      render: (row: LogRow) => (
+      render: (row) => (
         <span className="text-xs text-gray-500 dark:text-gray-400">
           {row.createdAt ? new Date(row.createdAt).toLocaleString() : "—"}
         </span>
@@ -173,7 +158,7 @@ export default function ActivityLogPage() {
   );
 }
 
-function getToken(): string {
+function getToken() {
   try {
     const raw = localStorage.getItem("creator-agency-auth");
     if (raw) return JSON.parse(raw).token || "";
