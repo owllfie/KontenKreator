@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { like, or, eq, and, sql, desc, not } from "drizzle-orm";
+import { ilike, or, eq, and, sql, desc, inArray } from "drizzle-orm";
 import { db, schema } from "../db";
 
 export const activityLogRoutes = new Hono();
@@ -16,9 +16,9 @@ activityLogRoutes.get("/", async (c) => {
   if (search) {
     conditions.push(
       or(
-        like(schema.activityLogs.aksi, `%${search}%`),
-        like(schema.activityLogs.namaTabel, `%${search}%`),
-        like(schema.activityLogs.keterangan, `%${search}%`)
+        ilike(schema.activityLogs.aksi, `%${search}%`),
+        ilike(schema.activityLogs.namaTabel, `%${search}%`),
+        ilike(schema.activityLogs.keterangan, `%${search}%`)
       )
     );
   }
@@ -28,8 +28,6 @@ activityLogRoutes.get("/", async (c) => {
   if (namaTabel) {
     conditions.push(eq(schema.activityLogs.namaTabel, namaTabel));
   }
-  // Hide activity performed by superadmin accounts.
-  conditions.push(not(eq(schema.role.role, "superadmin")));
 
   const where = conditions.length > 0 ? and(...conditions) : undefined;
 
@@ -72,5 +70,37 @@ activityLogRoutes.get("/", async (c) => {
       limit,
       totalPages: Math.ceil((countRow?.count ?? 0) / limit),
     },
+  });
+});
+
+activityLogRoutes.delete("/bulk", async (c) => {
+  const body = await c.req.json().catch(() => ({}));
+  const ids = Array.isArray(body?.ids) ? body.ids.map(Number).filter(Boolean) : [];
+
+  if (ids.length === 0) {
+    return c.json({ status: "error", message: "No logs selected" }, 400);
+  }
+
+  await db.delete(schema.activityLogs).where(inArray(schema.activityLogs.idLog, ids));
+  return c.json({ status: "ok", message: `${ids.length} log(s) deleted` });
+});
+
+activityLogRoutes.delete("/all", async (c) => {
+  const body = await c.req.json().catch(() => ({}));
+  const { aksi, namaTabel } = body || {};
+  const conditions = [];
+  if (aksi) conditions.push(eq(schema.activityLogs.aksi, aksi));
+  if (namaTabel) conditions.push(eq(schema.activityLogs.namaTabel, namaTabel));
+  const where = conditions.length > 0 ? and(...conditions) : undefined;
+
+  const [countRow] = await db
+    .select({ count: sql`count(*)::int` })
+    .from(schema.activityLogs)
+    .where(where);
+
+  await db.delete(schema.activityLogs).where(where);
+  return c.json({
+    status: "ok",
+    message: `${countRow?.count ?? 0} log(s) deleted`,
   });
 });

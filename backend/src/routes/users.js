@@ -1,8 +1,13 @@
 import { Hono } from "hono";
-import { eq, like, or, isNull, sql, and, desc, not } from "drizzle-orm";
+import { eq, ilike, or, isNull, sql, and, desc, not, inArray } from "drizzle-orm";
 import { db, schema } from "../db";
+import { writeLog } from "../lib/activity-log";
 
 export const userRoutes = new Hono();
+
+async function hashPassword(password) {
+  return Bun.password.hash(password, { algorithm: "bcrypt" });
+}
 
 userRoutes.get("/", async (c) => {
   const page = Number(c.req.query("page")) || 1;
@@ -20,9 +25,9 @@ userRoutes.get("/", async (c) => {
   if (search) {
     conditions.push(
       or(
-        like(schema.users.username, `%${search}%`),
-        like(schema.users.email, `%${search}%`),
-        like(schema.users.noTelp, `%${search}%`)
+        ilike(schema.users.username, `%${search}%`),
+        ilike(schema.users.email, `%${search}%`),
+        ilike(schema.users.noTelp, `%${search}%`)
       )
     );
   }
@@ -33,7 +38,7 @@ userRoutes.get("/", async (c) => {
     conditions.push(eq(schema.users.idRole, Number(role)));
   }
 
-  conditions.push(not(eq(schema.role.role, "superadmin")));
+  conditions.push(not(eq(schema.role.role, "Superadmin")));
 
   const where = conditions.length > 0 ? and(...conditions) : undefined;
 
@@ -47,6 +52,7 @@ userRoutes.get("/", async (c) => {
     .select({
       idUsers: schema.users.idUsers,
       username: schema.users.username,
+      namaLengkap: schema.users.namaLengkap,
       email: schema.users.email,
       noTelp: schema.users.noTelp,
       idRole: schema.users.idRole,
@@ -59,7 +65,7 @@ userRoutes.get("/", async (c) => {
     .from(schema.users)
     .leftJoin(schema.role, eq(schema.users.idRole, schema.role.idRole))
     .where(where)
-    .orderBy(desc(schema.users.createdAt))
+    .orderBy(desc(schema.users.createdAt), desc(schema.users.idUsers))
     .limit(limit)
     .offset(offset);
 
@@ -81,6 +87,7 @@ userRoutes.get("/:id", async (c) => {
     .select({
       idUsers: schema.users.idUsers,
       username: schema.users.username,
+      namaLengkap: schema.users.namaLengkap,
       email: schema.users.email,
       noTelp: schema.users.noTelp,
       idRole: schema.users.idRole,
@@ -94,7 +101,7 @@ userRoutes.get("/:id", async (c) => {
     .where(eq(schema.users.idUsers, id))
     .limit(1);
 
-  if (!row || row.roleName === "superadmin") {
+  if (!row || (row.roleName || "").toLowerCase() === "superadmin") {
     return c.json({ status: "error", message: "User not found" }, 404);
   }
   return c.json({ status: "ok", data: row });
@@ -102,18 +109,28 @@ userRoutes.get("/:id", async (c) => {
 
 userRoutes.post("/", async (c) => {
   const body = await c.req.json();
-  const { username, email, password, noTelp, idRole, status } = body;
+  const { username, namaLengkap, email, password, noTelp, idRole, status } = body;
 
-  if (!username || !email || !idRole) {
+  if (!username || !email || !idRole || !Number(idRole)) {
     return c.json({ status: "error", message: "Username, email, and role are required" }, 400);
   }
 
-  const hashedPassword = password ? await Bun.password.hash(password) : null;
+  const [existingEmail] = await db
+    .select({ idUsers: schema.users.idUsers })
+    .from(schema.users)
+    .where(eq(schema.users.email, email))
+    .limit(1);
+  if (existingEmail) {
+    return c.json({ status: "error", message: "Email is already registered" }, 409);
+  }
+
+  const hashedPassword = password ? await hashPassword(password) : null;
 
   const [created] = await db
     .insert(schema.users)
     .values({
       username,
+      namaLengkap: namaLengkap || null,
       email,
       password: hashedPassword,
       noTelp: noTelp || null,
@@ -128,12 +145,13 @@ userRoutes.post("/", async (c) => {
 userRoutes.put("/:id", async (c) => {
   const id = Number(c.req.param("id"));
   const body = await c.req.json();
-  const { username, email, noTelp, idRole, status } = body;
+  const { username, namaLengkap, email, noTelp, idRole, status } = body;
 
   const [updated] = await db
     .update(schema.users)
     .set({
       username,
+      namaLengkap: namaLengkap || null,
       email,
       noTelp: noTelp || null,
       idRole,
@@ -150,7 +168,7 @@ userRoutes.put("/:id", async (c) => {
 userRoutes.put("/:id/reset-password", async (c) => {
   const id = Number(c.req.param("id"));
   const defaultPassword = "password";
-  const hashed = await Bun.password.hash(defaultPassword);
+  const hashed = await hashPassword(defaultPassword);
 
   const [updated] = await db
     .update(schema.users)
@@ -171,7 +189,7 @@ userRoutes.put("/:id/soft-delete", async (c) => {
     .returning();
 
   if (!updated) return c.json({ status: "error", message: "User not found" }, 404);
-  return c.json({ status: "ok", message: "User soft-deleted" });
+  return c.json({ status: "ok", message: "User deleted" });
 });
 
 userRoutes.put("/:id/restore", async (c) => {
@@ -195,4 +213,93 @@ userRoutes.delete("/:id/permanent", async (c) => {
 
   if (!deleted) return c.json({ status: "error", message: "User not found" }, 404);
   return c.json({ status: "ok", message: "User permanently deleted" });
+});
+
+userRoutes.post("/bulk-delete", async (c) => {
+  const body = await c.req.json().catch(() => ({}));
+  const ids = Array.isArray(body?.ids) ? body.ids.map(Number).filter(Boolean) : [];
+
+  if (ids.length === 0) {
+    return c.json({ status: "error", message: "No users selected" }, 400);
+  }
+
+  const rows = await db
+    .select({
+      idUsers: schema.users.idUsers,
+      username: schema.users.username,
+      roleName: schema.role.role,
+    })
+    .from(schema.users)
+    .leftJoin(schema.role, eq(schema.users.idRole, schema.role.idRole))
+    .where(and(inArray(schema.users.idUsers, ids), isNull(schema.users.deletedAt), not(eq(schema.role.role, "Superadmin"))));
+
+  if (rows.length > 0) {
+    await db
+      .update(schema.users)
+      .set({ deletedAt: new Date(), updatedAt: new Date() })
+      .where(inArray(schema.users.idUsers, rows.map((r) => r.idUsers)));
+
+    const actorId = Number(c.get("jwtPayload")?.id_users);
+    for (const row of rows) {
+      await writeLog({
+        idUser: row.idUsers,
+        aksi: "DELETE",
+        namaTabel: "user",
+        idReferensi: row.idUsers,
+        keterangan: `User "${row.username}" deleted`,
+      });
+    }
+    if (actorId) {
+      await writeLog({
+        idUser: actorId,
+        aksi: "DELETE",
+        namaTabel: "user",
+        idReferensi: 0,
+        keterangan: `Bulk deleted ${rows.length} user(s)`,
+      });
+    }
+  }
+
+  return c.json({ status: "ok", message: `${rows.length} user(s) deleted` });
+});
+
+userRoutes.post("/delete-all", async (c) => {
+  const rows = await db
+    .select({
+      idUsers: schema.users.idUsers,
+      username: schema.users.username,
+      roleName: schema.role.role,
+    })
+    .from(schema.users)
+    .leftJoin(schema.role, eq(schema.users.idRole, schema.role.idRole))
+    .where(and(isNull(schema.users.deletedAt), not(eq(schema.role.role, "Superadmin"))));
+
+  if (rows.length > 0) {
+    await db
+      .update(schema.users)
+      .set({ deletedAt: new Date(), updatedAt: new Date() })
+      .where(inArray(schema.users.idUsers, rows.map((r) => r.idUsers)));
+
+    const actorId = Number(c.get("jwtPayload")?.id_users);
+    for (const row of rows) {
+      await writeLog({
+        idUser: row.idUsers,
+        aksi: "DELETE",
+        namaTabel: "user",
+        idReferensi: row.idUsers,
+        keterangan: `User "${row.username}" deleted`,
+      });
+    }
+    if (actorId) {
+      await writeLog({
+        idUser: actorId,
+        aksi: "DELETE",
+        namaTabel: "user",
+        idReferensi: 0,
+        keterangan: `Bulk deleted all users (${rows.length})`,
+      });
+    }
+  }
+
+  return c.json({ status: "ok", message: `${rows.length} user(s) deleted` });
 });

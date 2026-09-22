@@ -30,6 +30,7 @@ CREATE TABLE role_permissions (
 CREATE TABLE users (
     id_users SERIAL PRIMARY KEY,
     username VARCHAR(50) NOT NULL,
+    nama_lengkap VARCHAR(100),
     email VARCHAR(100) NOT NULL UNIQUE,
     password VARCHAR(255),
     no_telp VARCHAR(20),
@@ -40,6 +41,9 @@ CREATE TABLE users (
     deleted_at TIMESTAMP NULL DEFAULT NULL,
     CONSTRAINT fk_user_role FOREIGN KEY (id_role) REFERENCES role(id_role) ON DELETE CASCADE
 );
+
+-- user ids start at 69xxxxxx (8 digits) and auto-increment
+SELECT setval('users_id_users_seq', 69000000, false);
 
 -- 5. Activity Logs Table
 CREATE TABLE activity_logs (
@@ -61,6 +65,7 @@ CREATE TABLE activity_logs (
 CREATE TABLE team (
     id_team SERIAL PRIMARY KEY,
     nama_tim VARCHAR(50) NOT NULL,
+    kode_tim VARCHAR(20) UNIQUE,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     deleted_at TIMESTAMP NULL DEFAULT NULL
@@ -99,6 +104,9 @@ CREATE TABLE content (
     judul_konten VARCHAR(50) NOT NULL,
     file_draft VARCHAR(255),
     catatan TEXT,
+    revision_note TEXT,
+    revision_note_by INT,
+    revision_note_at TIMESTAMP,
     status_approval VARCHAR(20) CHECK (status_approval IN ('approved', 'pending', 'revision_needed')) DEFAULT 'pending',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -130,6 +138,9 @@ CREATE TABLE script (
     judul_script VARCHAR(50) NOT NULL,
     file_script VARCHAR(255),
     script TEXT,
+    revision_note TEXT,
+    revision_note_by INT,
+    revision_note_at TIMESTAMP,
     status_approval VARCHAR(20) CHECK (status_approval IN ('approved', 'pending', 'revision_needed')) DEFAULT 'pending',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,

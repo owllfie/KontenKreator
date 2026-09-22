@@ -60,13 +60,17 @@ export const AuthProvider = ({ children }) => {
         const json = await res.json();
         if (cancelled) return;
         if (json?.status === "ok") {
-          setUser((prev) => ({
-            ...(prev || stored),
-            id_users: json.data.id_users,
-            username: json.data.username,
-            email: json.data.email,
-            id_role: json.data.id_role,
-          }));
+setUser((prev) => ({
+              ...(prev || stored),
+              id_users: json.data.id_users,
+              username: json.data.username,
+              namaLengkap: json.data.namaLengkap,
+              email: json.data.email,
+              no_telp: json.data.no_telp,
+              id_role: json.data.id_role,
+              role: json.data.role,
+              permissions: json.data.permissions || [],
+            }));
         } else {
           logout();
         }

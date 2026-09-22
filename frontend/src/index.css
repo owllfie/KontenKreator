@@ -30,6 +30,14 @@
     --ring: 216 12.2% 83.9%;
     --radius: 0.5rem;
   }
+
+  button:not(:disabled),
+  [role="button"]:not(:disabled),
+  label:has(input[type="checkbox"]),
+  label:has(input[type="radio"]),
+  select:not(:disabled) {
+    cursor: pointer;
+  }
 }
 
 @theme {

@@ -18,31 +18,49 @@ import {
   FolderKanban,
   FileText,
   FileVideo2,
+  Edit2,
+  Trash2,
 } from "lucide-react";
 import UsersPage from "@/pages/admin/users-page";
 import ManageAccessPage from "@/pages/admin/manage-access-page";
 import ActivityLogPage from "@/pages/admin/activity-log-page";
 import TeamsPage from "@/pages/admin/teams-page";
-import ProjectsPage from "@/pages/admin/projects-page";
-import ScriptsPage from "@/pages/admin/scripts-page";
-import ContentsPage from "@/pages/admin/contents-page";
 import BackupPage from "@/pages/admin/backup-page";
 import ChatPanel from "@/components/ui/chat-panel";
-import ProfilePage from "@/pages/admin/profile-page";
+import ProfileModal from "@/pages/admin/profile-page";
+import SidebarDateTime from "@/components/ui/sidebar-datetime";
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:4000";
 
-const navItems = [
-  { Icon: Home, title: "Dashboard", path: "/dashboard" },
-  { Icon: Users, title: "Users", path: "/dashboard/users" },
-  { Icon: Layers, title: "Teams", path: "/dashboard/teams" },
-  { Icon: FolderKanban, title: "Projects", path: "/dashboard/projects" },
-  { Icon: FileText, title: "Scripts", path: "/dashboard/scripts" },
-  { Icon: FileVideo2, title: "Contents", path: "/dashboard/contents" },
-  { Icon: Shield, title: "Manage Access", path: "/dashboard/manage-access" },
-  { Icon: Activity, title: "Activity Log", path: "/dashboard/activity-log" },
-  { Icon: Database, title: "Backup Database", path: "/dashboard/backup" },
+const mainNavItems = [
+  { Icon: Home, title: "Dashboard", path: "/dashboard", perm: "view_dashboard" },
+  { Icon: Users, title: "Users", path: "/dashboard/users", perm: "view_users" },
+  { Icon: Layers, title: "Teams", path: "/dashboard/teams", perm: "view_teams" },
+  { Icon: Shield, title: "Manage Access", path: "/dashboard/manage-access", superadmin: true },
 ];
+
+const tailNavItems = [
+  { Icon: Database, title: "Backup Database", path: "/dashboard/backup", perm: "view_backup", superadmin: true },
+];
+
+const logSubItems = [
+  { Icon: FileText, title: "Insert Log", path: "/dashboard/activity-log/insert" },
+  { Icon: Edit2, title: "Update Log", path: "/dashboard/activity-log/update" },
+  { Icon: Trash2, title: "Delete Log", path: "/dashboard/activity-log/delete" },
+];
+
+function isSuperadmin(user) {
+  return (user?.role || "").toLowerCase() === "superadmin";
+}
+
+function hasPerm(user, code) {
+  if (isSuperadmin(user)) return true;
+  if (!Array.isArray(user?.permissions)) return true;
+  return user.permissions.includes(code);
+}
+
+const isNavVisible = (user, item) =>
+  (!item.perm || hasPerm(user, item.perm)) && (!item.superadmin || isSuperadmin(user));
 
 const TitleSection = ({ open }) => (
   <div
@@ -88,7 +106,77 @@ const NavOption = ({
   );
 };
 
-const Sidebar = () => {
+const LogsDropdown = ({ currentPath, navigate, open }) => {
+  const [dropOpen, setDropOpen] = useState(false);
+  const isActive = currentPath.startsWith("/dashboard/activity-log");
+  return (
+    <div className="relative">
+      <button
+        onClick={() => setDropOpen((v) => !v)}
+        className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 ${
+          isActive ? "bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white font-medium" : ""
+        }`}
+      >
+        <Activity className="h-4 w-4 shrink-0" />
+        {open && (
+          <>
+            <span className="flex-1 text-left truncate">Activity Log</span>
+            <ChevronDown
+              className={`h-4 w-4 text-gray-400 transition-transform ${dropOpen ? "rotate-180" : ""}`}
+            />
+          </>
+        )}
+      </button>
+
+      {dropOpen && (open ? (
+        <div className="pb-1">
+          {logSubItems.map((item) => {
+            const itemActive = currentPath === item.path;
+            return (
+              <button
+                key={item.path}
+                onClick={() => navigate(item.path)}
+                className={`w-full flex items-center gap-3 pl-11 pr-3 py-2 ml-2 text-sm text-left rounded-lg transition-colors hover:bg-gray-100 dark:hover:bg-gray-800 ${
+                  itemActive
+                    ? "bg-red-500/10 text-red-600 dark:text-red-400 font-medium"
+                    : "text-gray-700 dark:text-gray-300"
+                }`}
+              >
+                <item.Icon className="h-4 w-4 shrink-0 text-gray-500 dark:text-gray-400" />
+                {item.title}
+              </button>
+            );
+          })}
+        </div>
+      ) : (
+        <>
+          <div className="fixed inset-0 z-10" onClick={() => setDropOpen(false)} />
+          <div className="absolute z-20 overflow-hidden rounded-lg border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 shadow-lg left-1/2 -translate-x-1/2 mt-1 min-w-[150px]">
+            {logSubItems.map((item) => {
+              const itemActive = currentPath === item.path;
+              return (
+                <button
+                  key={item.path}
+                  onClick={() => navigate(item.path)}
+                  className={`w-full flex items-center gap-3 px-3 py-2.5 text-sm text-left hover:bg-gray-100 dark:hover:bg-gray-800 ${
+                    itemActive
+                      ? "bg-red-500/10 text-red-600 dark:text-red-400 font-medium"
+                      : "text-gray-700 dark:text-gray-300"
+                  }`}
+                >
+                  <item.Icon className="h-4 w-4 shrink-0 text-gray-500 dark:text-gray-400" />
+                  {item.title}
+                </button>
+              );
+            })}
+          </div>
+        </>
+      ))}
+    </div>
+  );
+};
+
+const Sidebar = ({ onOpenProfile }) => {
   const [open, setOpen] = useState(true);
   const [menuOpen, setMenuOpen] = useState(false);
   const navigate = useNavigate();
@@ -102,7 +190,7 @@ const Sidebar = () => {
 
   return (
     <nav
-      className={`sticky top-0 h-screen shrink-0 border-r border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-2 shadow-sm transition-all duration-300 ease-in-out ${
+      className={`relative h-full shrink-0 border-r border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-2 shadow-sm transition-all duration-300 ease-in-out ${
         open ? "w-64" : "w-16"
       }`}
     >
@@ -120,8 +208,28 @@ const Sidebar = () => {
 
       <TitleSection open={open} />
 
+      <SidebarDateTime open={open} />
+
       <div className="space-y-1 mb-8">
-        {navItems.map((item) => (
+        {mainNavItems.filter((item) => isNavVisible(user, item)).map((item) => (
+          <NavOption
+            key={item.path}
+            Icon={item.Icon}
+            title={item.title}
+            path={item.path}
+            currentPath={location.pathname}
+            navigate={navigate}
+            open={open}
+          />
+        ))}
+        {isSuperadmin(user) && (
+          <LogsDropdown
+            currentPath={location.pathname}
+            navigate={navigate}
+            open={open}
+          />
+        )}
+        {tailNavItems.filter((item) => isNavVisible(user, item)).map((item) => (
           <NavOption
             key={item.path}
             Icon={item.Icon}
@@ -141,7 +249,7 @@ const Sidebar = () => {
             className={`w-full flex items-center gap-3 p-2 rounded-lg border border-gray-200 dark:border-gray-800 hover:bg-gray-100 dark:hover:bg-gray-800 ${
               open ? "" : "justify-center"
             }`}
-            title="Menu profil"
+            title="User menu"
           >
             <div className="h-8 w-8 rounded-full bg-gray-300 dark:bg-gray-700 flex items-center justify-center shrink-0">
               <User className="h-4 w-4" />
@@ -149,7 +257,7 @@ const Sidebar = () => {
             {open && (
               <>
                 <div className="text-left flex-1 min-w-0">
-                  <p className="text-xs font-medium truncate">{user?.username ?? "Admin"}</p>
+                  <p className="text-xs font-medium truncate">{user?.namaLengkap || user?.username || "Admin"}</p>
                   <p className="text-[10px] text-gray-500 dark:text-gray-400 truncate">
                     {user?.email ?? "admin@studio.com"}
                   </p>
@@ -170,12 +278,12 @@ const Sidebar = () => {
                 <button
                   onClick={() => {
                     setMenuOpen(false);
-                    navigate("/dashboard/profile");
+                    onOpenProfile();
                   }}
                   className="w-full flex items-center gap-3 px-3 py-2.5 text-sm text-left text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800"
                 >
                   <User className="h-4 w-4 text-gray-500 dark:text-gray-400" />
-                  Profil
+                  Profile
                 </button>
                 <button
                   onClick={handleLogout}
@@ -256,26 +364,44 @@ const StatCard = ({
   </div>
 );
 
+const RequireSuperadmin = ({ children }) => {
+  const { user } = useAuth();
+  if (isSuperadmin(user)) return children;
+  return <Navigate to="/dashboard" replace />;
+};
+
+const RequirePerm = ({ code, children }) => {
+  const { user } = useAuth();
+  if (hasPerm(user, code)) return children;
+  return <Navigate to="/dashboard" replace />;
+};
+
 const DashboardLayout = () => {
   const location = useLocation();
   const [copilotOpen, setCopilotOpen] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
 
   useEffect(() => {
     document.documentElement.classList.add("dark");
   }, []);
 
   const getPageTitle = () => {
-    const item = navItems.find(
-      (n) => n.path === location.pathname || (n.path !== "/dashboard" && location.pathname.startsWith(n.path))
+    const p = location.pathname;
+    if (p.startsWith("/dashboard/activity-log/insert")) return "Insert Log";
+    if (p.startsWith("/dashboard/activity-log/update")) return "Update Log";
+    if (p.startsWith("/dashboard/activity-log/delete")) return "Delete Log";
+    if (p.startsWith("/dashboard/activity-log")) return "Activity Log";
+    const item = [...mainNavItems, ...tailNavItems].find(
+      (n) => n.path === p || (n.path !== "/dashboard" && p.startsWith(n.path))
     );
     return item?.title || "Dashboard";
   };
 
   return (
-    <div className="flex min-h-screen w-full">
-      <div className="flex w-full bg-background text-foreground">
-        <Sidebar />
-        <div className="flex-1 p-6">
+    <div className="flex h-screen w-full overflow-hidden">
+      <div className="flex w-full bg-background text-foreground overflow-hidden">
+        <Sidebar onOpenProfile={() => setProfileOpen(true)} />
+        <div className="flex-1 p-6 overflow-y-auto min-h-0">
           <header className="flex items-center justify-between mb-8">
             <div>
               <h1 className="text-2xl font-bold">{getPageTitle()}</h1>
@@ -283,19 +409,19 @@ const DashboardLayout = () => {
           </header>
           <Routes>
             <Route index element={<DashboardOverview />} />
-            <Route path="users" element={<UsersPage />} />
-            <Route path="teams" element={<TeamsPage />} />
-            <Route path="projects" element={<ProjectsPage />} />
-            <Route path="scripts" element={<ScriptsPage />} />
-            <Route path="contents" element={<ContentsPage />} />
-            <Route path="manage-access" element={<ManageAccessPage />} />
-            <Route path="activity-log" element={<ActivityLogPage />} />
-            <Route path="backup" element={<BackupPage />} />
-            <Route path="profile" element={<ProfilePage />} />
+            <Route path="users" element={<RequirePerm code="view_users"><UsersPage /></RequirePerm>} />
+            <Route path="teams" element={<RequirePerm code="view_teams"><TeamsPage /></RequirePerm>} />
+            <Route path="manage-access" element={<RequireSuperadmin><ManageAccessPage /></RequireSuperadmin>} />
+            <Route path="activity-log" element={<RequireSuperadmin><ActivityLogPage /></RequireSuperadmin>} />
+            <Route path="activity-log/insert" element={<RequireSuperadmin><ActivityLogPage logFilter="insert" /></RequireSuperadmin>} />
+            <Route path="activity-log/update" element={<RequireSuperadmin><ActivityLogPage logFilter="update" /></RequireSuperadmin>} />
+            <Route path="activity-log/delete" element={<RequireSuperadmin><ActivityLogPage logFilter="delete" /></RequireSuperadmin>} />
+            <Route path="backup" element={<RequireSuperadmin><BackupPage /></RequireSuperadmin>} />
             <Route path="*" element={<Navigate to="/dashboard" replace />} />
           </Routes>
         </div>
         <ChatPanel open={copilotOpen} onToggle={() => setCopilotOpen((v) => !v)} />
+        <ProfileModal open={profileOpen} onClose={() => setProfileOpen(false)} />
       </div>
     </div>
   );

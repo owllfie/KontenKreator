@@ -19,7 +19,7 @@ const AnimatedHeroDemo = () => {
   return (
     <>
       <AnimatedMarqueeHero
-        tagline="Trusted Content Creator Agency #1"
+        tagline="SaaS to manage your content creator agency"
         title={
           <>
             Manage & Grow

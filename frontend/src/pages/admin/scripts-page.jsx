@@ -5,6 +5,7 @@ import { Search, Plus, Edit2, Trash2, RotateCcw } from "lucide-react";
 import { DataTable } from "@/components/ui/data-table";
 import { AdminModal } from "@/components/ui/admin-modal";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { AdminNotice, useAdminNotice } from "@/components/ui/admin-notice";
 
 const API = import.meta.env.VITE_API_URL || "http://localhost:4000";
 
@@ -15,7 +16,6 @@ export default function ScriptsPage() {
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(0);
   const [search, setSearch] = useState("");
-  const [showDeleted, setShowDeleted] = useState(false);
   const [loading, setLoading] = useState(true);
 
   const [editModal, setEditModal] = useState(false);
@@ -26,13 +26,18 @@ export default function ScriptsPage() {
   const [deleteDialog, setDeleteDialog] = useState({ open: false, script: null, type: "soft" });
   const [actionLoading, setActionLoading] = useState(false);
 
+  const [selected, setSelected] = useState(new Set());
+  const [bulkDialog, setBulkDialog] = useState({ open: false, type: "selected" });
+  const [bulkLoading, setBulkLoading] = useState(false);
+
+  const { notice, setNotice, showNotice } = useAdminNotice();
+
   const fetchScripts = useCallback(async () => {
     setLoading(true);
     const params = new URLSearchParams({
       page: String(page),
       limit: "10",
       search,
-      showDeleted: String(showDeleted),
     });
     try {
       const res = await fetch(`${API}/api/admin/scripts?${params}`, {
@@ -47,7 +52,7 @@ export default function ScriptsPage() {
     } finally {
       setLoading(false);
     }
-  }, [page, search, showDeleted]);
+  }, [page, search]);
 
   const fetchProjects = async () => {
     try {
@@ -71,14 +76,25 @@ export default function ScriptsPage() {
 
   useEffect(() => {
     setPage(1);
-  }, [search, showDeleted]);
+  }, [search]);
+
+  useEffect(() => {
+    const pageIds = new Set(scripts.map((s) => s.idScript));
+    setSelected((prev) => {
+      const next = new Set();
+      prev.forEach((id) => {
+        if (pageIds.has(id)) next.add(id);
+      });
+      return next;
+    });
+  }, [scripts]);
 
   const openEdit = (script) => {
     setEditScript(script);
     setForm({
-      judulNaskah: script.judulNaskah,
+      judulNaskah: script.judulScript,
       idProject: script.idProject || 0,
-      isiNaskah: script.isiNaskah || "",
+      isiNaskah: script.script || "",
     });
     setEditModal(true);
   };
@@ -97,9 +113,10 @@ export default function ScriptsPage() {
         await fetch(`${API}/api/admin/scripts/${editScript.idScript}`, {
           method: "PUT",
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${getToken()}` },
-          body: JSON.stringify(form),
+          body: JSON.stringify({ judulScript: form.judulNaskah, script: form.isiNaskah }),
         });
         setEditModal(false);
+        showNotice("Script updated successfully");
       } else {
         await fetch(`${API}/api/admin/scripts`, {
           method: "POST",
@@ -107,10 +124,12 @@ export default function ScriptsPage() {
           body: JSON.stringify(form),
         });
         setCreateModal(false);
+        showNotice("Script created successfully");
       }
       fetchScripts();
     } catch (e) {
       console.error(e);
+      showNotice("Failed to save script", "error");
     } finally {
       setActionLoading(false);
     }
@@ -129,9 +148,11 @@ export default function ScriptsPage() {
         headers: { Authorization: `Bearer ${getToken()}` },
       });
       setDeleteDialog({ open: false, script: null, type: "soft" });
+      showNotice(defaultMessage("Script", "deleted"));
       fetchScripts();
     } catch (e) {
       console.error(e);
+      showNotice("Failed to delete script", "error");
     } finally {
       setActionLoading(false);
     }
@@ -143,14 +164,59 @@ export default function ScriptsPage() {
         method: "PUT",
         headers: { Authorization: `Bearer ${getToken()}` },
       });
+      showNotice(defaultMessage("Script", "restored"));
       fetchScripts();
     } catch (e) {
       console.error(e);
     }
   };
 
+  const handleBulkDelete = async () => {
+    setBulkLoading(true);
+    try {
+      const res = await fetch(`${API}/api/admin/scripts/${bulkDialog.type === "all" ? "delete-all" : "bulk-delete"}`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${getToken()}`,
+        },
+        body: bulkDialog.type === "all" ? undefined : JSON.stringify({ ids: Array.from(selected) }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.message || "Failed to delete scripts");
+      setBulkDialog({ open: false, type: "selected" });
+      setSelected(new Set());
+      showNotice(json.message || "Scripts deleted successfully");
+      fetchScripts();
+    } catch (e) {
+      console.error(e);
+      showNotice(e.message || "Failed to delete scripts", "error");
+    } finally {
+      setBulkLoading(false);
+    }
+  };
+
+  const toggleRow = (id) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleAll = (pageIds) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      const allSelected = pageIds.every((id) => next.has(id));
+      if (allSelected) pageIds.forEach((id) => next.delete(id));
+      else pageIds.forEach((id) => next.add(id));
+      return next;
+    });
+  };
+
   const columns = [
-    { key: "judulNaskah", label: "Script Title" },
+    { key: "judulScript", label: "Script Title" },
     { key: "namaProjek", label: "Project" },
     {
       key: "createdAt",
@@ -186,7 +252,7 @@ export default function ScriptsPage() {
               <button
                 onClick={() => setDeleteDialog({ open: true, script: row, type: "soft" })}
                 className="p-1.5 rounded-lg text-red-500 hover:bg-red-500/10 transition-colors"
-                title="Soft Delete"
+                title="Delete"
               >
                 <Trash2 className="h-4 w-4" />
               </button>
@@ -219,6 +285,8 @@ export default function ScriptsPage() {
         </button>
       </div>
 
+      <AdminNotice notice={notice} onClose={() => setNotice(null)} />
+
       <div className="flex flex-wrap items-center gap-3 mb-4">
         <div className="relative flex-1 min-w-[200px] max-w-sm">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
@@ -230,15 +298,19 @@ export default function ScriptsPage() {
             className="w-full pl-10 pr-4 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm focus:outline-none focus:ring-2 focus:ring-red-500/50"
           />
         </div>
-        <label className="flex items-center gap-2 text-sm cursor-pointer">
-          <input
-            type="checkbox"
-            checked={showDeleted}
-            onChange={(e) => setShowDeleted(e.target.checked)}
-            className="rounded border-gray-300"
-          />
-          Show deleted
-        </label>
+        <button
+          onClick={() => selected.size > 0 && setBulkDialog({ open: true, type: "selected" })}
+          disabled={selected.size === 0}
+          className="px-4 py-2 rounded-lg text-sm font-medium bg-red-500 hover:bg-red-600 text-white disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+        >
+          Delete Selected ({selected.size})
+        </button>
+        <button
+          onClick={() => setBulkDialog({ open: true, type: "all" })}
+          className="px-4 py-2 rounded-lg text-sm font-medium border border-red-500 text-red-500 hover:bg-red-500 hover:text-white transition-colors"
+        >
+          Delete All
+        </button>
       </div>
 
       <DataTable
@@ -249,6 +321,11 @@ export default function ScriptsPage() {
         totalPages={totalPages}
         onPageChange={setPage}
         loading={loading}
+        selectable
+        selected={selected}
+        onToggleRow={toggleRow}
+        onToggleAll={toggleAll}
+        getRowId={(row) => row.idScript}
       />
 
       <AdminModal
@@ -359,18 +436,37 @@ export default function ScriptsPage() {
         open={deleteDialog.open}
         onClose={() => setDeleteDialog({ open: false, script: null, type: "soft" })}
         onConfirm={handleDelete}
-        title={deleteDialog.type === "permanent" ? "Delete Permanently?" : "Soft Delete Script?"}
+        title={deleteDialog.type === "permanent" ? "Delete Permanently?" : "Delete Script?"}
         message={
           deleteDialog.type === "permanent"
-            ? `This will permanently remove "${deleteDialog.script?.judulNaskah}".`
-            : `This will soft-delete "${deleteDialog.script?.judulNaskah}".`
+            ? `This will permanently remove "${deleteDialog.script?.judulScript}".`
+            : `This will delete "${deleteDialog.script?.judulScript}".`
         }
-        confirmLabel={deleteDialog.type === "permanent" ? "Delete Permanently" : "Soft Delete"}
+        confirmLabel={deleteDialog.type === "permanent" ? "Delete Permanently" : "Delete"}
         variant="danger"
         loading={actionLoading}
       />
+
+      <ConfirmDialog
+        open={bulkDialog.open}
+        onClose={() => setBulkDialog({ open: false, type: "selected" })}
+        onConfirm={handleBulkDelete}
+        title={bulkDialog.type === "all" ? "Delete All Scripts?" : "Delete Selected Scripts?"}
+        message={
+          bulkDialog.type === "all"
+            ? `This will delete all scripts (${total} total). Are you sure?`
+            : `This will delete ${selected.size} selected script(s). Are you sure?`
+        }
+        confirmLabel="Delete"
+        variant="danger"
+        loading={bulkLoading}
+      />
     </div>
   );
+}
+
+function defaultMessage(item, action) {
+  return `${item} ${action} successfully`;
 }
 
 function getToken() {

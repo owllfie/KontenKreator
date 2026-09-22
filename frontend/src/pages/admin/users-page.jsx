@@ -5,6 +5,7 @@ import { Search, Plus, Edit2, Trash2, KeyRound, RotateCcw, Eye, EyeOff } from "l
 import { DataTable } from "@/components/ui/data-table";
 import { AdminModal } from "@/components/ui/admin-modal";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { AdminNotice, useAdminNotice } from "@/components/ui/admin-notice";
 
 const API = import.meta.env.VITE_API_URL || "http://localhost:4000";
 
@@ -17,7 +18,6 @@ export default function UsersPage() {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
   const [roleFilter, setRoleFilter] = useState("");
-  const [showDeleted, setShowDeleted] = useState(false);
   const [loading, setLoading] = useState(true);
 
   const [editModal, setEditModal] = useState(false);
@@ -25,6 +25,7 @@ export default function UsersPage() {
   const [editUser, setEditUser] = useState(null);
   const [form, setForm] = useState({
     username: "",
+    namaLengkap: "",
     email: "",
     password: "",
     noTelp: "",
@@ -43,6 +44,12 @@ export default function UsersPage() {
   });
   const [actionLoading, setActionLoading] = useState(false);
 
+  const [selected, setSelected] = useState(new Set());
+  const [bulkDialog, setBulkDialog] = useState({ open: false, type: "selected" });
+  const [bulkLoading, setBulkLoading] = useState(false);
+
+  const { notice, setNotice, showNotice } = useAdminNotice();
+
   const fetchUsers = useCallback(async () => {
     setLoading(true);
     const params = new URLSearchParams({
@@ -51,14 +58,15 @@ export default function UsersPage() {
       search,
       status: statusFilter,
       role: roleFilter,
-      showDeleted: String(showDeleted),
     });
     try {
       const res = await fetch(`${API}/api/admin/users?${params}`, {
         headers: { Authorization: `Bearer ${getToken()}` },
       });
       const json = await res.json();
-      const rows = (json.data?.rows || []).filter((r) => r.roleName !== "superadmin");
+      const rows = (json.data?.rows || []).filter(
+        (r) => (r.roleName || "").toLowerCase() !== "superadmin"
+      );
       setUsers(rows);
       setTotal(json.data?.total || 0);
       setTotalPages(json.data?.totalPages || 0);
@@ -67,7 +75,7 @@ export default function UsersPage() {
     } finally {
       setLoading(false);
     }
-  }, [page, search, statusFilter, roleFilter, showDeleted]);
+  }, [page, search, statusFilter, roleFilter]);
 
   const fetchRoles = async () => {
     try {
@@ -75,7 +83,9 @@ export default function UsersPage() {
         headers: { Authorization: `Bearer ${getToken()}` },
       });
       const json = await res.json();
-      const list = (json.data || []).filter((r) => r.role !== "superadmin");
+      const list = (json.data || []).filter(
+        (r) => (r.role || "").toLowerCase() !== "superadmin"
+      );
       setRoles(list);
     } catch (e) {
       console.error(e);
@@ -92,12 +102,24 @@ export default function UsersPage() {
 
   useEffect(() => {
     setPage(1);
-  }, [search, statusFilter, roleFilter, showDeleted]);
+  }, [search, statusFilter, roleFilter]);
+
+  useEffect(() => {
+    const pageIds = new Set(users.map((u) => u.idUsers));
+    setSelected((prev) => {
+      const next = new Set();
+      prev.forEach((id) => {
+        if (pageIds.has(id)) next.add(id);
+      });
+      return next;
+    });
+  }, [users]);
 
   const openEdit = (user) => {
     setEditUser(user);
     setForm({
       username: user.username,
+      namaLengkap: user.namaLengkap || "",
       email: user.email,
       password: "",
       noTelp: user.noTelp || "",
@@ -109,31 +131,50 @@ export default function UsersPage() {
 
   const openCreate = () => {
     setEditUser(null);
-    setForm({ username: "", email: "", password: "", noTelp: "", idRole: 0, status: "active" });
+    setForm({ username: "", namaLengkap: "", email: "", password: "", noTelp: "", idRole: 0, status: "active" });
     setCreateModal(true);
   };
 
   const handleSave = async () => {
     setActionLoading(true);
     try {
-      if (editUser) {
-        await fetch(`${API}/api/admin/users/${editUser.idUsers}`, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json", Authorization: `Bearer ${getToken()}` },
-          body: JSON.stringify({ username: form.username, email: form.email, noTelp: form.noTelp, idRole: form.idRole, status: form.status }),
-        });
-        setEditModal(false);
-      } else {
-        await fetch(`${API}/api/admin/users`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", Authorization: `Bearer ${getToken()}` },
-          body: JSON.stringify(form),
-        });
-        setCreateModal(false);
+      if (!form.username.trim() || !form.email.trim()) {
+        showNotice("Username and email are required", "error");
+        return;
       }
+      if (!form.idRole) {
+        showNotice("Please select a role", "error");
+        return;
+      }
+      if (!editUser && !form.password.trim()) {
+        showNotice("Password is required for a new user", "error");
+        return;
+      }
+      const endpoint = editUser
+        ? `${API}/api/admin/users/${editUser.idUsers}`
+        : `${API}/api/admin/users`;
+      const res = await fetch(endpoint, {
+        method: editUser ? "PUT" : "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${getToken()}` },
+        body: JSON.stringify({
+          username: form.username,
+          namaLengkap: form.namaLengkap,
+          email: form.email,
+          password: form.password || null,
+          noTelp: form.noTelp,
+          idRole: Number(form.idRole),
+          status: form.status,
+        }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.message || `Failed to save user (${res.status})`);
+      setEditModal(false);
+      setCreateModal(false);
+      showNotice(editUser ? "User updated successfully" : "User created successfully");
       fetchUsers();
     } catch (e) {
       console.error(e);
+      showNotice(e.message || "Failed to save user", "error");
     } finally {
       setActionLoading(false);
     }
@@ -152,9 +193,11 @@ export default function UsersPage() {
         headers: { Authorization: `Bearer ${getToken()}` },
       });
       setDeleteDialog({ open: false, user: null, type: "soft" });
+      showNotice(defaultMessage("User", "deleted"));
       fetchUsers();
     } catch (e) {
       console.error(e);
+      showNotice("Failed to delete user", "error");
     } finally {
       setActionLoading(false);
     }
@@ -164,13 +207,20 @@ export default function UsersPage() {
     if (!resetDialog.user) return;
     setActionLoading(true);
     try {
-      await fetch(`${API}/api/admin/users/${resetDialog.user.idUsers}/reset-password`, {
+      const res = await fetch(`${API}/api/admin/users/${resetDialog.user.idUsers}/reset-password`, {
         method: "PUT",
         headers: { Authorization: `Bearer ${getToken()}` },
       });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        showNotice(data.message || "Failed to reset password", "error");
+        return;
+      }
       setResetDialog({ open: false, user: null });
-    } catch (e) {
-      console.error(e);
+      showNotice(`Password for "${resetDialog.user.namaLengkap || resetDialog.user.username}" has been reset successfully`);
+      fetchUsers();
+    } catch {
+      showNotice("Cannot connect to the server", "error");
     } finally {
       setActionLoading(false);
     }
@@ -182,14 +232,83 @@ export default function UsersPage() {
         method: "PUT",
         headers: { Authorization: `Bearer ${getToken()}` },
       });
+      showNotice(defaultMessage("User", "restored"));
       fetchUsers();
     } catch (e) {
       console.error(e);
     }
   };
 
+  const handleBulkDelete = async () => {
+    setBulkLoading(true);
+    try {
+      const res = await fetch(`${API}/api/admin/users/${bulkDialog.type === "all" ? "delete-all" : "bulk-delete"}`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${getToken()}`,
+        },
+        body: bulkDialog.type === "all" ? undefined : JSON.stringify({ ids: Array.from(selected) }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.message || "Failed to delete users");
+      setBulkDialog({ open: false, type: "selected" });
+      setSelected(new Set());
+      showNotice(json.message || "Users deleted successfully");
+      fetchUsers();
+    } catch (e) {
+      console.error(e);
+      showNotice(e.message || "Failed to delete users", "error");
+    } finally {
+      setBulkLoading(false);
+    }
+  };
+
+  const toggleRow = (id) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleAll = (pageIds) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      const allSelected = pageIds.every((id) => next.has(id));
+      if (allSelected) pageIds.forEach((id) => next.delete(id));
+      else pageIds.forEach((id) => next.add(id));
+      return next;
+    });
+  };
+
   const columns = [
-    { key: "username", label: "Username" },
+    {
+      key: "idUsers",
+      label: "User ID",
+      render: (row) => (
+        <span className="font-mono text-xs text-gray-500 dark:text-gray-400 tabular-nums">
+          {row.idUsers}
+        </span>
+      ),
+    },
+    {
+      key: "username",
+      label: "Username",
+      render: (row) => (
+        <span className="font-medium text-gray-900 dark:text-white">{row.username}</span>
+      ),
+    },
+    {
+      key: "namaLengkap",
+      label: "Full Name",
+      render: (row) => (
+        <span className="text-gray-900 dark:text-white">
+          {row.namaLengkap || "—"}
+        </span>
+      ),
+    },
     { key: "email", label: "Email" },
     { key: "noTelp", label: "Phone" },
     {
@@ -249,14 +368,7 @@ export default function UsersPage() {
               <button
                 onClick={() => setDeleteDialog({ open: true, user: row, type: "soft" })}
                 className="p-1.5 rounded-lg text-red-500 hover:bg-red-500/10 transition-colors"
-                title="Soft Delete"
-              >
-                <Trash2 className="h-4 w-4" />
-              </button>
-              <button
-                onClick={() => setDeleteDialog({ open: true, user: row, type: "permanent" })}
-                className="p-1.5 rounded-lg text-red-700 hover:bg-red-700/10 transition-colors"
-                title="Delete Permanently"
+                title="Delete"
               >
                 <Trash2 className="h-4 w-4" />
               </button>
@@ -281,6 +393,8 @@ export default function UsersPage() {
           <Plus className="h-4 w-4" /> Add User
         </button>
       </div>
+
+      <AdminNotice notice={notice} onClose={() => setNotice(null)} />
 
       <div className="flex flex-wrap items-center gap-3 mb-4">
         <div className="relative flex-1 min-w-[200px] max-w-sm">
@@ -315,15 +429,19 @@ export default function UsersPage() {
             </option>
           ))}
         </select>
-        <label className="flex items-center gap-2 text-sm cursor-pointer">
-          <input
-            type="checkbox"
-            checked={showDeleted}
-            onChange={(e) => setShowDeleted(e.target.checked)}
-            className="rounded border-gray-300"
-          />
-          Show deleted
-        </label>
+        <button
+          onClick={() => selected.size > 0 && setBulkDialog({ open: true, type: "selected" })}
+          disabled={selected.size === 0}
+          className="px-4 py-2 rounded-lg text-sm font-medium bg-red-500 hover:bg-red-600 text-white disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+        >
+          Delete Selected ({selected.size})
+        </button>
+        <button
+          onClick={() => setBulkDialog({ open: true, type: "all" })}
+          className="px-4 py-2 rounded-lg text-sm font-medium border border-red-500 text-red-500 hover:bg-red-500 hover:text-white transition-colors"
+        >
+          Delete All
+        </button>
       </div>
 
       <DataTable
@@ -334,6 +452,11 @@ export default function UsersPage() {
         totalPages={totalPages}
         onPageChange={setPage}
         loading={loading}
+        selectable
+        selected={selected}
+        onToggleRow={toggleRow}
+        onToggleAll={toggleAll}
+        getRowId={(row) => row.idUsers}
       />
 
       <AdminModal
@@ -353,9 +476,10 @@ export default function UsersPage() {
       >
         <div className="space-y-4">
           <InputField label="Username" value={form.username} onChange={(v) => setForm({ ...form, username: v })} />
+          <InputField label="Full Name" value={form.namaLengkap} onChange={(v) => setForm({ ...form, namaLengkap: v })} />
           <InputField label="Email" value={form.email} onChange={(v) => setForm({ ...form, email: v })} type="email" />
           <InputField label="Phone" value={form.noTelp} onChange={(v) => setForm({ ...form, noTelp: v })} />
-          <SelectField label="Role" value={String(form.idRole)} onChange={(v) => setForm({ ...form, idRole: Number(v) })} options={roles.map((r) => ({ value: String(r.idRole), label: r.role }))} />
+          <SelectField label="Role" placeholder="Select Role" value={String(form.idRole)} onChange={(v) => setForm({ ...form, idRole: Number(v) })} options={roles.map((r) => ({ value: String(r.idRole), label: r.role }))} />
           <SelectField label="Status" value={form.status} onChange={(v) => setForm({ ...form, status: v })} options={[{ value: "active", label: "Active" }, { value: "inactive", label: "Inactive" }, { value: "suspended", label: "Suspended" }]} />
         </div>
       </AdminModal>
@@ -377,10 +501,11 @@ export default function UsersPage() {
       >
         <div className="space-y-4">
           <InputField label="Username" value={form.username} onChange={(v) => setForm({ ...form, username: v })} />
+          <InputField label="Full Name" value={form.namaLengkap} onChange={(v) => setForm({ ...form, namaLengkap: v })} />
           <InputField label="Email" value={form.email} onChange={(v) => setForm({ ...form, email: v })} type="email" />
           <InputField label="Password" value={form.password} onChange={(v) => setForm({ ...form, password: v })} type="password" />
           <InputField label="Phone" value={form.noTelp} onChange={(v) => setForm({ ...form, noTelp: v })} />
-          <SelectField label="Role" value={String(form.idRole)} onChange={(v) => setForm({ ...form, idRole: Number(v) })} options={roles.map((r) => ({ value: String(r.idRole), label: r.role }))} />
+          <SelectField label="Role" placeholder="Select Role" value={String(form.idRole)} onChange={(v) => setForm({ ...form, idRole: Number(v) })} options={roles.map((r) => ({ value: String(r.idRole), label: r.role }))} />
           <SelectField label="Status" value={form.status} onChange={(v) => setForm({ ...form, status: v })} options={[{ value: "active", label: "Active" }, { value: "inactive", label: "Inactive" }, { value: "suspended", label: "Suspended" }]} />
         </div>
       </AdminModal>
@@ -389,15 +514,30 @@ export default function UsersPage() {
         open={deleteDialog.open}
         onClose={() => setDeleteDialog({ open: false, user: null, type: "soft" })}
         onConfirm={handleDelete}
-        title={deleteDialog.type === "permanent" ? "Delete Permanently?" : "Soft Delete User?"}
+        title={deleteDialog.type === "permanent" ? "Delete Permanently?" : "Delete User?"}
         message={
           deleteDialog.type === "permanent"
             ? `This will permanently remove "${deleteDialog.user?.username}". This action cannot be undone.`
-            : `This will soft-delete "${deleteDialog.user?.username}". The user can be restored later.`
+            : `This will delete "${deleteDialog.user?.username}". The user can be restored later.`
         }
-        confirmLabel={deleteDialog.type === "permanent" ? "Delete Permanently" : "Soft Delete"}
+        confirmLabel={deleteDialog.type === "permanent" ? "Delete Permanently" : "Delete"}
         variant="danger"
         loading={actionLoading}
+      />
+
+      <ConfirmDialog
+        open={bulkDialog.open}
+        onClose={() => setBulkDialog({ open: false, type: "selected" })}
+        onConfirm={handleBulkDelete}
+        title={bulkDialog.type === "all" ? "Delete All Users?" : "Delete Selected Users?"}
+        message={
+          bulkDialog.type === "all"
+            ? `This will delete all users (${total} total). The Superadmin account is never affected. Are you sure?`
+            : `This will delete ${selected.size} selected user(s). Are you sure?`
+        }
+        confirmLabel="Delete"
+        variant="danger"
+        loading={bulkLoading}
       />
 
       <ConfirmDialog
@@ -405,13 +545,17 @@ export default function UsersPage() {
         onClose={() => setResetDialog({ open: false, user: null })}
         onConfirm={handleResetPassword}
         title="Reset Password?"
-        message={`Reset "${resetDialog.user?.username}"'s password to the default "password"?`}
+        message={`Reset "${resetDialog.user?.username}"'s password? They will be able to log in with the new password.`}
         confirmLabel="Reset Password"
         variant="warning"
         loading={actionLoading}
       />
     </div>
   );
+}
+
+function defaultMessage(item, action) {
+  return `${item} ${action} successfully`;
 }
 
 function InputField({ label, value, onChange, type = "text" }) {
@@ -441,7 +585,7 @@ function InputField({ label, value, onChange, type = "text" }) {
   );
 }
 
-function SelectField({ label, value, onChange, options }) {
+function SelectField({ label, value, onChange, options, placeholder }) {
   return (
     <div>
       <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5">{label}</label>
@@ -450,6 +594,7 @@ function SelectField({ label, value, onChange, options }) {
         onChange={(e) => onChange(e.target.value)}
         className="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm"
       >
+        {placeholder && <option value="">{placeholder}</option>}
         {options.map((o) => (
           <option key={o.value} value={o.value}>
             {o.label}

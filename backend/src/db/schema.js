@@ -45,8 +45,9 @@ export const rolePermissions = pgTable(
 export const users = pgTable("users", {
   idUsers: serial("id_users").primaryKey(),
   username: varchar("username", { length: 50 }).notNull(),
+  namaLengkap: varchar("nama_lengkap", { length: 100 }),
   email: varchar("email", { length: 100 }).notNull().unique(),
-  password: varchar("password", { length: 60 }),
+  password: varchar("password", { length: 255 }),
   noTelp: varchar("no_telp", { length: 20 }),
   idRole: integer("id_role")
     .notNull()
@@ -76,6 +77,7 @@ export const activityLogs = pgTable("activity_logs", {
 export const team = pgTable("team", {
   idTeam: serial("id_team").primaryKey(),
   namaTim: varchar("nama_tim", { length: 50 }).notNull(),
+  kodeTim: varchar("kode_tim", { length: 20 }).unique(),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
   deletedAt: timestamp("deleted_at", { withTimezone: true }),
@@ -118,6 +120,10 @@ export const content = pgTable("content", {
   judulKonten: varchar("judul_konten", { length: 50 }).notNull(),
   fileDraft: varchar("file_draft", { length: 255 }),
   catatan: text("catatan"),
+  revisionNote: text("revision_note"),
+  revisionNoteBy: integer("revision_note_by")
+    .references(() => teamMember.idMember, { onDelete: "set null" }),
+  revisionNoteAt: timestamp("revision_note_at", { withTimezone: true }),
   statusApproval: varchar("status_approval", { length: 20 })
     .default("pending")
     .notNull(),
@@ -155,6 +161,10 @@ export const script = pgTable("script", {
   judulScript: varchar("judul_script", { length: 50 }).notNull(),
   fileScript: varchar("file_script", { length: 255 }),
   script: text("script"),
+  revisionNote: text("revision_note"),
+  revisionNoteBy: integer("revision_note_by")
+    .references(() => teamMember.idMember, { onDelete: "set null" }),
+  revisionNoteAt: timestamp("revision_note_at", { withTimezone: true }),
   statusApproval: varchar("status_approval", { length: 20 })
     .default("pending")
     .notNull(),

@@ -7,7 +7,7 @@ export default defineConfig({
     plugins: [
         tailwindcss(),
         react({
-            fastRefresh: true,
+            fastRefresh: false,
         }),
     ],
     resolve: {

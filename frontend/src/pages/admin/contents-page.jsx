@@ -5,6 +5,7 @@ import { Search, Plus, Edit2, Trash2, RotateCcw } from "lucide-react";
 import { DataTable } from "@/components/ui/data-table";
 import { AdminModal } from "@/components/ui/admin-modal";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { AdminNotice, useAdminNotice } from "@/components/ui/admin-notice";
 
 const API = import.meta.env.VITE_API_URL || "http://localhost:4000";
 
@@ -15,7 +16,6 @@ export default function ContentsPage() {
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(0);
   const [search, setSearch] = useState("");
-  const [showDeleted, setShowDeleted] = useState(false);
   const [loading, setLoading] = useState(true);
 
   const [editModal, setEditModal] = useState(false);
@@ -26,13 +26,18 @@ export default function ContentsPage() {
   const [deleteDialog, setDeleteDialog] = useState({ open: false, contentItem: null, type: "soft" });
   const [actionLoading, setActionLoading] = useState(false);
 
+  const [selected, setSelected] = useState(new Set());
+  const [bulkDialog, setBulkDialog] = useState({ open: false, type: "selected" });
+  const [bulkLoading, setBulkLoading] = useState(false);
+
+  const { notice, setNotice, showNotice } = useAdminNotice();
+
   const fetchContents = useCallback(async () => {
     setLoading(true);
     const params = new URLSearchParams({
       page: String(page),
       limit: "10",
       search,
-      showDeleted: String(showDeleted),
     });
     try {
       const res = await fetch(`${API}/api/admin/contents?${params}`, {
@@ -47,7 +52,7 @@ export default function ContentsPage() {
     } finally {
       setLoading(false);
     }
-  }, [page, search, showDeleted]);
+  }, [page, search]);
 
   const fetchProjects = async () => {
     try {
@@ -71,7 +76,18 @@ export default function ContentsPage() {
 
   useEffect(() => {
     setPage(1);
-  }, [search, showDeleted]);
+  }, [search]);
+
+  useEffect(() => {
+    const pageIds = new Set(contents.map((c) => c.idContent));
+    setSelected((prev) => {
+      const next = new Set();
+      prev.forEach((id) => {
+        if (pageIds.has(id)) next.add(id);
+      });
+      return next;
+    });
+  }, [contents]);
 
   const openEdit = (item) => {
     setEditContent(item);
@@ -98,9 +114,10 @@ export default function ContentsPage() {
         await fetch(`${API}/api/admin/contents/${editContent.idContent}`, {
           method: "PUT",
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${getToken()}` },
-          body: JSON.stringify(form),
+          body: JSON.stringify({ judulKonten: form.judulKonten }),
         });
         setEditModal(false);
+        showNotice("Content updated successfully");
       } else {
         await fetch(`${API}/api/admin/contents`, {
           method: "POST",
@@ -108,10 +125,12 @@ export default function ContentsPage() {
           body: JSON.stringify(form),
         });
         setCreateModal(false);
+        showNotice("Content created successfully");
       }
       fetchContents();
     } catch (e) {
       console.error(e);
+      showNotice("Failed to save content", "error");
     } finally {
       setActionLoading(false);
     }
@@ -130,9 +149,11 @@ export default function ContentsPage() {
         headers: { Authorization: `Bearer ${getToken()}` },
       });
       setDeleteDialog({ open: false, contentItem: null, type: "soft" });
+      showNotice(defaultMessage("Content", "deleted"));
       fetchContents();
     } catch (e) {
       console.error(e);
+      showNotice("Failed to delete content", "error");
     } finally {
       setActionLoading(false);
     }
@@ -144,21 +165,66 @@ export default function ContentsPage() {
         method: "PUT",
         headers: { Authorization: `Bearer ${getToken()}` },
       });
+      showNotice(defaultMessage("Content", "restored"));
       fetchContents();
     } catch (e) {
       console.error(e);
     }
   };
 
+  const handleBulkDelete = async () => {
+    setBulkLoading(true);
+    try {
+      const res = await fetch(`${API}/api/admin/contents/${bulkDialog.type === "all" ? "delete-all" : "bulk-delete"}`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${getToken()}`,
+        },
+        body: bulkDialog.type === "all" ? undefined : JSON.stringify({ ids: Array.from(selected) }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.message || "Failed to delete contents");
+      setBulkDialog({ open: false, type: "selected" });
+      setSelected(new Set());
+      showNotice(json.message || "Contents deleted successfully");
+      fetchContents();
+    } catch (e) {
+      console.error(e);
+      showNotice(e.message || "Failed to delete contents", "error");
+    } finally {
+      setBulkLoading(false);
+    }
+  };
+
+  const toggleRow = (id) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleAll = (pageIds) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      const allSelected = pageIds.every((id) => next.has(id));
+      if (allSelected) pageIds.forEach((id) => next.delete(id));
+      else pageIds.forEach((id) => next.add(id));
+      return next;
+    });
+  };
+
   const columns = [
     { key: "judulKonten", label: "Content Title" },
     { key: "namaProjek", label: "Project" },
     {
-      key: "statusKonten",
+      key: "statusApproval",
       label: "Status",
       render: (row) => (
         <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-500/10 text-blue-600 dark:text-blue-400 capitalize">
-          {row.statusKonten}
+          {row.statusApproval}
         </span>
       ),
     },
@@ -196,7 +262,7 @@ export default function ContentsPage() {
               <button
                 onClick={() => setDeleteDialog({ open: true, contentItem: row, type: "soft" })}
                 className="p-1.5 rounded-lg text-red-500 hover:bg-red-500/10 transition-colors"
-                title="Soft Delete"
+                title="Delete"
               >
                 <Trash2 className="h-4 w-4" />
               </button>
@@ -229,6 +295,8 @@ export default function ContentsPage() {
         </button>
       </div>
 
+      <AdminNotice notice={notice} onClose={() => setNotice(null)} />
+
       <div className="flex flex-wrap items-center gap-3 mb-4">
         <div className="relative flex-1 min-w-[200px] max-w-sm">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
@@ -240,15 +308,19 @@ export default function ContentsPage() {
             className="w-full pl-10 pr-4 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm focus:outline-none focus:ring-2 focus:ring-red-500/50"
           />
         </div>
-        <label className="flex items-center gap-2 text-sm cursor-pointer">
-          <input
-            type="checkbox"
-            checked={showDeleted}
-            onChange={(e) => setShowDeleted(e.target.checked)}
-            className="rounded border-gray-300"
-          />
-          Show deleted
-        </label>
+        <button
+          onClick={() => selected.size > 0 && setBulkDialog({ open: true, type: "selected" })}
+          disabled={selected.size === 0}
+          className="px-4 py-2 rounded-lg text-sm font-medium bg-red-500 hover:bg-red-600 text-white disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+        >
+          Delete Selected ({selected.size})
+        </button>
+        <button
+          onClick={() => setBulkDialog({ open: true, type: "all" })}
+          className="px-4 py-2 rounded-lg text-sm font-medium border border-red-500 text-red-500 hover:bg-red-500 hover:text-white transition-colors"
+        >
+          Delete All
+        </button>
       </div>
 
       <DataTable
@@ -259,6 +331,11 @@ export default function ContentsPage() {
         totalPages={totalPages}
         onPageChange={setPage}
         loading={loading}
+        selectable
+        selected={selected}
+        onToggleRow={toggleRow}
+        onToggleAll={toggleAll}
+        getRowId={(row) => row.idContent}
       />
 
       <AdminModal
@@ -395,18 +472,37 @@ export default function ContentsPage() {
         open={deleteDialog.open}
         onClose={() => setDeleteDialog({ open: false, contentItem: null, type: "soft" })}
         onConfirm={handleDelete}
-        title={deleteDialog.type === "permanent" ? "Delete Permanently?" : "Soft Delete Content?"}
+        title={deleteDialog.type === "permanent" ? "Delete Permanently?" : "Delete Content?"}
         message={
           deleteDialog.type === "permanent"
             ? `This will permanently remove "${deleteDialog.contentItem?.judulKonten}".`
-            : `This will soft-delete "${deleteDialog.contentItem?.judulKonten}".`
+            : `This will delete "${deleteDialog.contentItem?.judulKonten}".`
         }
-        confirmLabel={deleteDialog.type === "permanent" ? "Delete Permanently" : "Soft Delete"}
+        confirmLabel={deleteDialog.type === "permanent" ? "Delete Permanently" : "Delete"}
         variant="danger"
         loading={actionLoading}
       />
+
+      <ConfirmDialog
+        open={bulkDialog.open}
+        onClose={() => setBulkDialog({ open: false, type: "selected" })}
+        onConfirm={handleBulkDelete}
+        title={bulkDialog.type === "all" ? "Delete All Contents?" : "Delete Selected Contents?"}
+        message={
+          bulkDialog.type === "all"
+            ? `This will delete all contents (${total} total). Are you sure?`
+            : `This will delete ${selected.size} selected content(s). Are you sure?`
+        }
+        confirmLabel="Delete"
+        variant="danger"
+        loading={bulkLoading}
+      />
     </div>
   );
+}
+
+function defaultMessage(item, action) {
+  return `${item} ${action} successfully`;
 }
 
 function getToken() {

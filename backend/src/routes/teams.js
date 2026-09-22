@@ -1,11 +1,26 @@
 import { Hono } from "hono";
-import { eq, like, or, isNull, and, sql, desc, not } from "drizzle-orm";
+import { eq, ilike, or, isNull, and, sql, desc, not, inArray } from "drizzle-orm";
 import { db, schema } from "../db";
 import { writeLog } from "../lib/activity-log";
 
 export const teamRoutes = new Hono();
 
-const VALID_JOBS = ["leader", "admin", "scriptwriter", "videographer", "editor", "content creator"];
+const VALID_JOBS = ["leader", "vice leader", "member", "talent"];
+
+async function getActiveTalentCount(teamId, excludeMemberId) {
+  const rows = await db
+    .select({ idMember: schema.teamMember.idMember })
+    .from(schema.teamMember)
+    .where(
+      and(
+        eq(schema.teamMember.idTeam, teamId),
+        isNull(schema.teamMember.deletedAt),
+        eq(schema.teamMember.job, "talent"),
+        excludeMemberId ? not(eq(schema.teamMember.idMember, excludeMemberId)) : undefined
+      )
+    );
+  return rows.length;
+}
 
 function getActor(c) {
   const payload = c.get("jwtPayload");
@@ -24,7 +39,7 @@ teamRoutes.get("/", async (c) => {
     conditions.push(isNull(schema.team.deletedAt));
   }
   if (search) {
-    conditions.push(like(schema.team.namaTim, `%${search}%`));
+    conditions.push(ilike(schema.team.namaTim, `%${search}%`));
   }
 
   const where = conditions.length > 0 ? and(...conditions) : undefined;
@@ -48,7 +63,23 @@ teamRoutes.get("/", async (c) => {
         .select({ count: sql`count(*)::int` })
         .from(schema.teamMember)
         .where(eq(schema.teamMember.idTeam, row.idTeam));
-      return { ...row, memberCount: memberCount?.count ?? 0 };
+      const [leader] = await db
+        .select({
+          leaderName: sql`COALESCE(${schema.users.namaLengkap}, ${schema.users.username})`,
+        })
+        .from(schema.teamMember)
+        .leftJoin(schema.users, eq(schema.teamMember.idUser, schema.users.idUsers))
+        .leftJoin(schema.role, eq(schema.users.idRole, schema.role.idRole))
+        .where(
+          and(
+            eq(schema.teamMember.idTeam, row.idTeam),
+            eq(schema.teamMember.job, "leader"),
+            isNull(schema.teamMember.deletedAt),
+            not(eq(schema.role.role, "Superadmin"))
+          )
+        )
+        .limit(1);
+      return { ...row, memberCount: memberCount?.count ?? 0, leaderName: leader?.leaderName ?? null };
     })
   );
 
@@ -81,7 +112,7 @@ teamRoutes.get("/:id", async (c) => {
     .from(schema.teamMember)
     .leftJoin(schema.users, eq(schema.teamMember.idUser, schema.users.idUsers))
     .leftJoin(schema.role, eq(schema.users.idRole, schema.role.idRole))
-    .where(and(eq(schema.teamMember.idTeam, id), not(eq(schema.role.role, "superadmin"))));
+    .where(and(eq(schema.teamMember.idTeam, id), not(eq(schema.role.role, "Superadmin"))));
 
   return c.json({ status: "ok", data: { ...row, members } });
 });
@@ -158,10 +189,10 @@ teamRoutes.put("/:id/soft-delete", async (c) => {
       aksi: "DELETE",
       namaTabel: "team",
       idReferensi: updated.idTeam,
-      keterangan: `Team "${updated.namaTim}" soft-deleted`,
+      keterangan: `Team "${updated.namaTim}" deleted`,
     });
   }
-  return c.json({ status: "ok", message: "Team soft-deleted" });
+  return c.json({ status: "ok", message: "Team deleted" });
 });
 
 teamRoutes.put("/:id/restore", async (c) => {
@@ -205,6 +236,71 @@ teamRoutes.delete("/:id/permanent", async (c) => {
   return c.json({ status: "ok", message: "Team permanently deleted" });
 });
 
+teamRoutes.post("/bulk-delete", async (c) => {
+  const body = await c.req.json().catch(() => ({}));
+  const ids = Array.isArray(body?.ids) ? body.ids.map(Number).filter(Boolean) : [];
+
+  if (ids.length === 0) {
+    return c.json({ status: "error", message: "No teams selected" }, 400);
+  }
+
+  const rows = await db
+    .select({ idTeam: schema.team.idTeam, namaTim: schema.team.namaTim })
+    .from(schema.team)
+    .where(and(inArray(schema.team.idTeam, ids), isNull(schema.team.deletedAt)));
+
+  if (rows.length > 0) {
+    await db
+      .update(schema.team)
+      .set({ deletedAt: new Date(), updatedAt: new Date() })
+      .where(inArray(schema.team.idTeam, rows.map((r) => r.idTeam)));
+
+    const actor = getActor(c);
+    if (actor) {
+      for (const row of rows) {
+        await writeLog({
+          idUser: actor.idUser,
+          aksi: "DELETE",
+          namaTabel: "team",
+          idReferensi: row.idTeam,
+          keterangan: `Team "${row.namaTim}" deleted`,
+        });
+      }
+    }
+  }
+
+  return c.json({ status: "ok", message: `${rows.length} team(s) deleted` });
+});
+
+teamRoutes.post("/delete-all", async (c) => {
+  const rows = await db
+    .select({ idTeam: schema.team.idTeam, namaTim: schema.team.namaTim })
+    .from(schema.team)
+    .where(isNull(schema.team.deletedAt));
+
+  if (rows.length > 0) {
+    await db
+      .update(schema.team)
+      .set({ deletedAt: new Date(), updatedAt: new Date() })
+      .where(isNull(schema.team.deletedAt));
+
+    const actor = getActor(c);
+    if (actor) {
+      for (const row of rows) {
+        await writeLog({
+          idUser: actor.idUser,
+          aksi: "DELETE",
+          namaTabel: "team",
+          idReferensi: row.idTeam,
+          keterangan: `Team "${row.namaTim}" deleted`,
+        });
+      }
+    }
+  }
+
+  return c.json({ status: "ok", message: `${rows.length} team(s) deleted` });
+});
+
 teamRoutes.get("/:id/available-users", async (c) => {
   const id = Number(c.req.param("id"));
   const [team] = await db.select().from(schema.team).where(eq(schema.team.idTeam, id)).limit(1);
@@ -230,7 +326,7 @@ teamRoutes.get("/:id/available-users", async (c) => {
       and(
         isNull(schema.users.deletedAt),
         eq(schema.users.status, "active"),
-        not(eq(schema.role.role, "superadmin"))
+        not(eq(schema.role.role, "Superadmin"))
       )
     );
 
@@ -271,6 +367,10 @@ teamRoutes.post("/:id/members", async (c) => {
     .limit(1);
   if (dup) return c.json({ status: "error", message: "User is already a member of this team" }, 409);
 
+  if (String(job).toLowerCase() === "talent" && (await getActiveTalentCount(id)) > 0) {
+    return c.json({ status: "error", message: "This team already has a talent. Choose another role." }, 400);
+  }
+
   const [created] = await db
     .insert(schema.teamMember)
     .values({ idTeam: id, idUser: Number(idUser), job: String(job).toLowerCase() })
@@ -307,7 +407,11 @@ teamRoutes.put("/:id/members/:memberId", async (c) => {
     .from(schema.teamMember)
     .where(and(eq(schema.teamMember.idMember, memberId), eq(schema.teamMember.idTeam, id)))
     .limit(1);
-  if (!member) return c.json({ status: "error", message: "Member not found" }, 404);
+  if (![member]) return c.json({ status: "error", message: "Member not found" }, 404);
+
+  if (String(job).toLowerCase() === "talent" && (await getActiveTalentCount(id, memberId)) > 0) {
+    return c.json({ status: "error", message: "This team already has a talent. Choose another role." }, 400);
+  }
 
   const [updated] = await db
     .update(schema.teamMember)
@@ -350,7 +454,7 @@ teamRoutes.put("/:id/members/:memberId/soft-delete", async (c) => {
       aksi: "DELETE",
       namaTabel: "team_member",
       idReferensi: updated.idMember,
-      keterangan: "Team member soft-deleted",
+      keterangan: "Team member deleted",
     });
   }
 

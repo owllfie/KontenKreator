@@ -1,8 +1,14 @@
 import { Hono } from "hono";
-import { sql, eq, like, desc, and } from "drizzle-orm";
+import { sql, eq, ilike, desc, and, inArray } from "drizzle-orm";
 import { db, schema } from "../db";
+import { writeLog } from "../lib/activity-log";
 
 export const backupRoutes = new Hono();
+
+function getActor(c) {
+  const payload = c.get("jwtPayload");
+  return payload ? { idUser: payload.id_users } : null;
+}
 
 const TABLES = [
   "role", "permissions", "role_permissions", "users",
@@ -25,6 +31,22 @@ function formatLocale(date) {
   const hh = String(d.getHours()).padStart(2, "0");
   const mi = String(d.getMinutes()).padStart(2, "0");
   return `${dd}-${mm}-${yyyy} ${hh}.${mi}`;
+}
+
+function jakartaStamp() {
+  const parts = Object.fromEntries(
+    new Intl.DateTimeFormat("en-GB", {
+      timeZone: "Asia/Jakarta",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hourCycle: "h23",
+    }).formatToParts(new Date()).map((p) => [p.type, p.value])
+  );
+  return `${parts.year}-${parts.month}-${parts.day}_${parts.hour}-${parts.minute}-${parts.second}`;
 }
 
 async function buildDump() {
@@ -50,7 +72,7 @@ backupRoutes.get("/", async (c) => {
     const offset = (page - 1) * limit;
 
     const conds = [];
-    if (search) conds.push(like(schema.backupHistory.fileName, `%${search}%`));
+    if (search) conds.push(ilike(schema.backupHistory.fileName, `%${search}%`));
     if (type && type !== "Semua") conds.push(eq(schema.backupHistory.type, type));
     const where = conds.length > 0 ? and(...conds) : undefined;
 
@@ -109,7 +131,7 @@ backupRoutes.post("/", async (c) => {
     const createdBy = body?.createdBy || null;
 
     const { payload, records } = await buildDump();
-    const fileName = `kontenkreator_backup_${Date.now()}.json`;
+    const fileName = `kontenkreator_backup_${jakartaStamp()}.json`;
     const sizeBytes = Buffer.byteLength(payload, "utf-8");
 
     const [created] = await db
@@ -124,6 +146,23 @@ backupRoutes.post("/", async (c) => {
         fileContent: payload,
       })
       .returning();
+
+    const actor = getActor(c);
+    if (actor) {
+      await writeLog({
+        idUser: actor.idUser,
+        aksi: "CREATE",
+        namaTabel: "backup_history",
+        idReferensi: created.idBackup,
+        keterangan: `Backup "${fileName}" created by ${createdBy || "System"}`,
+        newValues: JSON.stringify({
+          fileName,
+          sizeBytes,
+          records,
+          status: "Berhasil",
+        }),
+      });
+    }
 
     return c.json({ status: "ok", fileName });
   } catch (error) {
@@ -141,10 +180,10 @@ backupRoutes.get("/:id/download", async (c) => {
       .limit(1);
 
     if (!b || !b.fileContent) {
-      return c.json({ status: "error", message: "Backup tidak ditemukan" }, 404);
+      return c.json({ status: "error", message: "Backup not found" }, 404);
     }
     if (b.status !== "Berhasil") {
-      return c.json({ status: "error", message: "Backup tidak tersedia" }, 400);
+      return c.json({ status: "error", message: "Backup file not available" }, 400);
     }
 
     c.header("Content-Type", "application/json");
@@ -165,10 +204,10 @@ backupRoutes.post("/:id/restore", async (c) => {
       .limit(1);
 
     if (!b || !b.fileContent) {
-      return c.json({ status: "error", message: "Backup tidak ditemukan" }, 404);
+      return c.json({ status: "error", message: "Backup not found" }, 404);
     }
     if (b.status !== "Berhasil") {
-      return c.json({ status: "error", message: "Backup tidak dapat dipulihkan" }, 400);
+      return c.json({ status: "error", message: "Backup cannot be restored" }, 400);
     }
 
     const dump = JSON.parse(b.fileContent);
@@ -187,17 +226,109 @@ backupRoutes.post("/:id/restore", async (c) => {
       }
     }
 
-    return c.json({ status: "ok", message: "Database berhasil dipulihkan" });
+    const actor = getActor(c);
+    if (actor) {
+      await writeLog({
+        idUser: actor.idUser,
+        aksi: "UPDATE",
+        namaTabel: "backup_history",
+        idReferensi: b.idBackup,
+        keterangan: `Database restored from backup "${b.fileName}"`,
+      });
+    }
+
+    return c.json({ status: "ok", message: "Database restored successfully" });
   } catch (error) {
     return c.json({ status: "error", message: error.message }, 500);
   }
 });
 
+backupRoutes.delete("/bulk", async (c) => {
+  try {
+    const body = await c.req.json().catch(() => ({}));
+    const ids = Array.isArray(body?.ids) ? body.ids.map(Number).filter(Boolean) : [];
+
+    if (ids.length === 0) {
+      return c.json({ status: "error", message: "No backups selected" }, 400);
+    }
+
+    const rows = await db
+      .select()
+      .from(schema.backupHistory)
+      .where(inArray(schema.backupHistory.idBackup, ids));
+
+    await db.delete(schema.backupHistory).where(inArray(schema.backupHistory.idBackup, ids));
+
+    const actor = getActor(c);
+    for (const b of rows) {
+      if (actor) {
+        await writeLog({
+          idUser: actor.idUser,
+          aksi: "DELETE",
+          namaTabel: "backup_history",
+          idReferensi: b.idBackup,
+          keterangan: `Backup "${b.fileName}" deleted`,
+        });
+      }
+    }
+
+    return c.json({ status: "ok", message: `${ids.length} backup(s) deleted` });
+  } catch (error) {
+    return c.json({ status: "error", message: error.message }, 500);
+  }
+});
+
+backupRoutes.delete("/all", async (c) => {
+    try {
+      const rows = await db
+        .select()
+        .from(schema.backupHistory);
+
+      await db.delete(schema.backupHistory);
+
+      const actor = getActor(c);
+      if (actor && rows.length > 0) {
+        await writeLog({
+          idUser: actor.idUser,
+          aksi: "DELETE",
+          namaTabel: "backup_history",
+          idReferensi: 0,
+          keterangan: `All backups deleted (${rows.length})`,
+        });
+      }
+
+      return c.json({ status: "ok", message: "All backups deleted" });
+    } catch (error) {
+      return c.json({ status: "error", message: error.message }, 500);
+    }
+  });
+
 backupRoutes.delete("/:id", async (c) => {
   try {
     const id = Number(c.req.param("id"));
+    if (!Number.isInteger(id)) {
+      return c.json({ status: "error", message: "Invalid backup id" }, 400);
+    }
+    const [b] = await db
+      .select()
+      .from(schema.backupHistory)
+      .where(eq(schema.backupHistory.idBackup, id))
+      .limit(1);
+
     await db.delete(schema.backupHistory).where(eq(schema.backupHistory.idBackup, id));
-    return c.json({ status: "ok", message: "Backup dihapus" });
+
+    const actor = getActor(c);
+    if (actor && b) {
+      await writeLog({
+        idUser: actor.idUser,
+        aksi: "DELETE",
+        namaTabel: "backup_history",
+        idReferensi: b.idBackup,
+        keterangan: `Backup "${b.fileName}" deleted`,
+      });
+    }
+
+    return c.json({ status: "ok", message: "Backup deleted" });
   } catch (error) {
     return c.json({ status: "error", message: error.message }, 500);
   }

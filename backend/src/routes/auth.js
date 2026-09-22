@@ -1,153 +1,14 @@
 import { Hono } from "hono";
-import { eq } from "drizzle-orm";
+import { eq, and, isNull } from "drizzle-orm";
 import { db, schema } from "../db";
 import { signJwt, verifyJwt } from "../lib/jwt";
 import { verifyRecaptcha } from "../lib/recaptcha";
 
 export const authRoutes = new Hono();
 
-const GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth";
-const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
-const GOOGLE_USERINFO_URL = "https://www.googleapis.com/oauth2/v2/userinfo";
-
-const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:5173";
-
-authRoutes.get("/google", (c) => {
-  const clientId = process.env.GOOGLE_CLIENT_ID;
-  const redirectUri = process.env.GOOGLE_REDIRECT_URI;
-
-  if (!clientId || !redirectUri) {
-    return c.text("Google OAuth is not configured", 500);
-  }
-
-  const params = new URLSearchParams({
-    client_id: clientId,
-    redirect_uri: redirectUri,
-    response_type: "code",
-    scope: "openid email profile",
-    access_type: "offline",
-    prompt: "select_account",
-  });
-
-  return c.redirect(`${GOOGLE_AUTH_URL}?${params.toString()}`);
-});
-
-authRoutes.get("/google/callback", async (c) => {
-  const code = c.req.query("code");
-  const error = c.req.query("error");
-
-  if (error) {
-    return c.redirect(
-      `${FRONTEND_URL}/auth/callback?error=${encodeURIComponent(error)}`
-    );
-  }
-
-  if (!code) {
-    return c.text("Missing authorization code", 400);
-  }
-
-  try {
-    const tokenResponse = await fetch(GOOGLE_TOKEN_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({
-        code,
-        client_id: process.env.GOOGLE_CLIENT_ID,
-        client_secret: process.env.GOOGLE_CLIENT_SECRET,
-        redirect_uri: process.env.GOOGLE_REDIRECT_URI,
-        grant_type: "authorization_code",
-      }),
-    });
-
-    if (!tokenResponse.ok) {
-      const errText = await tokenResponse.text();
-      return c.text(`Failed to exchange code: ${errText}`, 400);
-    }
-
-    const tokenData = await tokenResponse.json();
-
-    const userInfoResponse = await fetch(GOOGLE_USERINFO_URL, {
-      headers: { Authorization: `Bearer ${tokenData.access_token}` },
-    });
-
-    if (!userInfoResponse.ok) {
-      return c.text("Failed to fetch Google user info", 400);
-    }
-
-    const googleUser = await userInfoResponse.json();
-
-    if (!googleUser.email) {
-      return c.text("Google account has no verified email", 400);
-    }
-
-    const existingUsers = await db
-      .select()
-      .from(schema.users)
-      .where(eq(schema.users.email, googleUser.email))
-      .limit(1);
-
-    let user = existingUsers[0];
-    let isNewUser = false;
-
-    if (!user) {
-      isNewUser = true;
-
-      const [userRole] = await db
-        .select()
-        .from(schema.role)
-        .where(eq(schema.role.role, "user"))
-        .limit(1);
-
-      if (!userRole) {
-        return c.text("Default 'user' role not found in database", 500);
-      }
-
-      const usernameBase = googleUser.name || googleUser.email.split("@")[0];
-      const uniqueUsername = await ensureUniqueUsername(usernameBase);
-
-      const [createdUser] = await db
-        .insert(schema.users)
-        .values({
-          username: uniqueUsername,
-          email: googleUser.email,
-          password: null,
-          idRole: userRole.idRole,
-          status: "active",
-        })
-        .returning();
-
-      user = createdUser;
-
-      const teamName = `${googleUser.name || usernameBase}'s Team`;
-
-      const [createdTeam] = await db
-        .insert(schema.team)
-        .values({ namaTim: teamName })
-        .returning();
-
-      await db.insert(schema.teamMember).values({
-        idTeam: createdTeam.idTeam,
-        idUser: createdUser.idUsers,
-        job: "Admin",
-      });
-    }
-
-    const token = await signJwt({
-      id_users: user.idUsers,
-      email: user.email,
-      id_role: user.idRole,
-    });
-
-    return c.redirect(
-      `${FRONTEND_URL}/auth/callback?token=${encodeURIComponent(token)}`
-    );
-  } catch (err) {
-    return c.text(
-      `Google OAuth callback error: ${err.message}`,
-      500
-    );
-  }
-});
+async function hashPassword(password) {
+  return Bun.password.hash(password, { algorithm: "bcrypt" });
+}
 
 async function getBody(c) {
   try {
@@ -181,7 +42,7 @@ async function createUserRecord(input) {
   const [userRole] = await db
     .select()
     .from(schema.role)
-    .where(eq(schema.role.role, "user"))
+    .where(eq(schema.role.role, "User"))
     .limit(1);
 
   if (!userRole) {
@@ -194,14 +55,16 @@ async function createUserRecord(input) {
     .insert(schema.users)
     .values({
       username: uniqueUsername,
+      namaLengkap: input.namaLengkap || null,
       email: input.email,
       password: input.password,
+      noTelp: input.noTelp || null,
       idRole: userRole.idRole,
       status: "active",
     })
     .returning();
 
-  const teamName = `${uniqueUsername}'s Team`;
+  const teamName = `${input.namaLengkap || uniqueUsername}'s Team`;
   const [createdTeam] = await db
     .insert(schema.team)
     .values({ namaTim: teamName })
@@ -232,7 +95,9 @@ authRoutes.post("/register", async (c) => {
   }
 
   const username = body.username || "";
+  const fullName = body.namaLengkap || "";
   const email = body.email || "";
+  const noTelp = body.noTelp || "";
   const password = body.password || "";
 
   if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
@@ -240,6 +105,9 @@ authRoutes.post("/register", async (c) => {
   }
   if (!username) {
     return c.json({ status: "error", message: "Username is required" }, 400);
+  }
+  if (!fullName.trim()) {
+    return c.json({ status: "error", message: "Full name is required" }, 400);
   }
   if (!password || password.length < 6) {
     return c.json(
@@ -251,8 +119,10 @@ authRoutes.post("/register", async (c) => {
   try {
     const { user } = await createUserRecord({
       username,
+      namaLengkap: fullName.trim(),
       email,
-      password: await Bun.password.hash(password),
+      noTelp: noTelp.trim() || null,
+      password: await hashPassword(password),
     });
 
     const token = await signJwt({
@@ -269,8 +139,11 @@ authRoutes.post("/register", async (c) => {
         user: {
           id_users: user.idUsers,
           username: user.username,
+          namaLengkap: user.namaLengkap,
           email: user.email,
+          no_telp: user.noTelp,
           id_role: user.idRole,
+          role: "User",
         },
       },
     });
@@ -334,6 +207,12 @@ authRoutes.post("/login", async (c) => {
     id_role: user.idRole,
   });
 
+  const [role] = await db
+    .select()
+    .from(schema.role)
+    .where(eq(schema.role.idRole, user.idRole))
+    .limit(1);
+
   return c.json({
     status: "ok",
     message: "Login successful",
@@ -342,8 +221,11 @@ authRoutes.post("/login", async (c) => {
       user: {
         id_users: user.idUsers,
         username: user.username,
+        namaLengkap: user.namaLengkap,
         email: user.email,
+        no_telp: user.noTelp,
         id_role: user.idRole,
+        role: role?.role || "User",
       },
     },
   });
@@ -373,6 +255,7 @@ authRoutes.put("/me", async (c) => {
     }
 
     const username = body.username?.trim();
+    const namaLengkap = body.namaLengkap?.trim() || null;
     const email = body.email?.trim();
     const noTelp = body.noTelp?.trim() || null;
     const currentPassword = body.currentPassword || "";
@@ -409,12 +292,12 @@ authRoutes.put("/me", async (c) => {
       if (!valid) {
         return c.json({ status: "error", message: "Current password is incorrect" }, 401);
       }
-      password = await Bun.password.hash(newPassword);
+      password = await hashPassword(newPassword);
     }
 
     const [updated] = await db
       .update(schema.users)
-      .set({ username, email, noTelp, password, updatedAt: new Date() })
+      .set({ username, namaLengkap, email, noTelp, password, updatedAt: new Date() })
       .where(eq(schema.users.idUsers, user.idUsers))
       .returning();
 
@@ -424,8 +307,10 @@ authRoutes.put("/me", async (c) => {
       data: {
         id_users: updated.idUsers,
         username: updated.username,
+        namaLengkap: updated.namaLengkap,
         email: updated.email,
         id_role: updated.idRole,
+        role: "User",
         no_telp: updated.noTelp,
       },
     });
@@ -443,8 +328,18 @@ authRoutes.get("/me", async (c) => {
   try {
     const payload = await verifyJwt(authHeader.slice(7));
     const [user] = await db
-      .select()
+      .select({
+        id_users: schema.users.idUsers,
+        username: schema.users.username,
+        namaLengkap: schema.users.namaLengkap,
+        email: schema.users.email,
+        id_role: schema.users.idRole,
+        role: schema.role.role,
+        no_telp: schema.users.noTelp,
+        status: schema.users.status,
+      })
       .from(schema.users)
+      .leftJoin(schema.role, eq(schema.users.idRole, schema.role.idRole))
       .where(eq(schema.users.idUsers, payload.id_users))
       .limit(1);
 
@@ -452,15 +347,35 @@ authRoutes.get("/me", async (c) => {
       return c.json({ status: "error", message: "User not found" }, 404);
     }
 
+    let permissions;
+    if ((user.role || "").toLowerCase() === "superadmin") {
+      permissions = (
+        await db
+          .select({ namaPermission: schema.permissions.namaPermission })
+          .from(schema.permissions)
+          .where(isNull(schema.permissions.deletedAt))
+      ).map((r) => r.namaPermission);
+    } else {
+      permissions = (
+        await db
+          .select({ namaPermission: schema.permissions.namaPermission })
+          .from(schema.rolePermissions)
+          .innerJoin(
+            schema.permissions,
+            eq(schema.rolePermissions.idPermission, schema.permissions.idPermission)
+          )
+          .where(
+            and(
+              eq(schema.rolePermissions.idRole, user.id_role),
+              isNull(schema.permissions.deletedAt)
+            )
+          )
+      ).map((r) => r.namaPermission);
+    }
+
     return c.json({
       status: "ok",
-      data: {
-        id_users: user.idUsers,
-        username: user.username,
-        email: user.email,
-        id_role: user.idRole,
-        no_telp: user.noTelp,
-      },
+      data: { ...user, permissions },
     });
   } catch (err) {
     return c.json(

@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { eq, like, isNull, and, sql, desc } from "drizzle-orm";
+import { eq, ilike, isNull, and, sql, desc, inArray } from "drizzle-orm";
 import { db, schema } from "../db";
 import { writeLog } from "../lib/activity-log";
 
@@ -19,7 +19,7 @@ projectRoutes.get("/", async (c) => {
 
   const conditions = [];
   if (!showDeleted) conditions.push(isNull(schema.project.deletedAt));
-  if (search) conditions.push(like(schema.project.namaProjek, `%${search}%`));
+  if (search) conditions.push(ilike(schema.project.namaProjek, `%${search}%`));
 
   const where = conditions.length ? and(...conditions) : undefined;
 
@@ -166,10 +166,10 @@ projectRoutes.put("/:id/soft-delete", async (c) => {
       aksi: "DELETE",
       namaTabel: "project",
       idReferensi: updated.idProject,
-      keterangan: `Project "${updated.namaProjek}" soft-deleted`,
+      keterangan: `Project "${updated.namaProjek}" deleted`,
     });
   }
-  return c.json({ status: "ok", message: "Project soft-deleted" });
+  return c.json({ status: "ok", message: "Project deleted" });
 });
 
 projectRoutes.put("/:id/restore", async (c) => {
@@ -192,6 +192,71 @@ projectRoutes.put("/:id/restore", async (c) => {
     });
   }
   return c.json({ status: "ok", message: "Project restored" });
+});
+
+projectRoutes.post("/bulk-delete", async (c) => {
+  const body = await c.req.json().catch(() => ({}));
+  const ids = Array.isArray(body?.ids) ? body.ids.map(Number).filter(Boolean) : [];
+
+  if (ids.length === 0) {
+    return c.json({ status: "error", message: "No projects selected" }, 400);
+  }
+
+  const rows = await db
+    .select({ idProject: schema.project.idProject, namaProjek: schema.project.namaProjek })
+    .from(schema.project)
+    .where(and(inArray(schema.project.idProject, ids), isNull(schema.project.deletedAt)));
+
+  if (rows.length > 0) {
+    await db
+      .update(schema.project)
+      .set({ deletedAt: new Date(), updatedAt: new Date() })
+      .where(inArray(schema.project.idProject, rows.map((r) => r.idProject)));
+
+    const actor = getActor(c);
+    if (actor) {
+      for (const row of rows) {
+        await writeLog({
+          idUser: actor.idUser,
+          aksi: "DELETE",
+          namaTabel: "project",
+          idReferensi: row.idProject,
+          keterangan: `Project "${row.namaProjek}" deleted`,
+        });
+      }
+    }
+  }
+
+  return c.json({ status: "ok", message: `${rows.length} project(s) deleted` });
+});
+
+projectRoutes.post("/delete-all", async (c) => {
+  const rows = await db
+    .select({ idProject: schema.project.idProject, namaProjek: schema.project.namaProjek })
+    .from(schema.project)
+    .where(isNull(schema.project.deletedAt));
+
+  if (rows.length > 0) {
+    await db
+      .update(schema.project)
+      .set({ deletedAt: new Date(), updatedAt: new Date() })
+      .where(isNull(schema.project.deletedAt));
+
+    const actor = getActor(c);
+    if (actor) {
+      for (const row of rows) {
+        await writeLog({
+          idUser: actor.idUser,
+          aksi: "DELETE",
+          namaTabel: "project",
+          idReferensi: row.idProject,
+          keterangan: `Project "${row.namaProjek}" deleted`,
+        });
+      }
+    }
+  }
+
+  return c.json({ status: "ok", message: `${rows.length} project(s) deleted` });
 });
 
 projectRoutes.delete("/:id/permanent", async (c) => {

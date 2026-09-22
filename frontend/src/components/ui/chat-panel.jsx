@@ -2,6 +2,8 @@
 
 import React, { useState, useRef, useEffect } from "react";
 import { Sparkles, X, Send, RotateCcw, Bot, User } from "lucide-react";
+import { useAuth } from "@/lib/auth";
+import { Markdown, cleanThinking } from "@/components/ui/markdown";
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:4000";
 
@@ -18,10 +20,16 @@ function getToken() {
 const WELCOME = {
   role: "assistant",
   content:
-    "Halo! Saya Copilot untuk Creator Studio. Tanya saya seputar pengguna, tim, proyek, konten, akses, atau backup database.",
+    "Hello! I'm Copilot for Creator Studio. Ask me about users, teams, projects, content, or access.",
 };
 
+function roleLabel(role) {
+  if (!role) return "Member";
+  return role.charAt(0).toUpperCase() + role.slice(1).toLowerCase();
+}
+
 function ChatPanel({ open, onToggle }) {
+  const { user } = useAuth();
   const [messages, setMessages] = useState([WELCOME]);
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(false);
@@ -54,7 +62,7 @@ function ChatPanel({ open, onToggle }) {
     abortRef.current = controller;
 
     try {
-      const res = await fetch(`${API_BASE_URL}/api/admin/chat`, {
+      const res = await fetch(`${API_BASE_URL}/api/chat`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -75,7 +83,7 @@ function ChatPanel({ open, onToggle }) {
         throw new Error(detail || `Error ${res.status}`);
       }
 
-      if (!res.body) throw new Error("Tidak ada response body");
+      if (!res.body) throw new Error("No response body");
 
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
@@ -106,11 +114,12 @@ function ChatPanel({ open, onToggle }) {
           if (json.done) continue;
           if (typeof json.delta === "string") {
             finalText += json.delta;
+            const cleaned = cleanThinking(finalText);
             setMessages((prev) => {
               const copy = [...prev];
               copy[assistantIdx] = {
                 role: "assistant",
-                content: finalText,
+                content: cleaned,
               };
               return copy;
             });
@@ -121,11 +130,11 @@ function ChatPanel({ open, onToggle }) {
       if (e.name === "AbortError") {
         // stream cancelled, keep partial text
       } else {
-        setError(e.message || "Terjadi kesalahan");
+        setError(e.message || "Something went wrong");
         setMessages((prev) => {
           const copy = prev.map((m, i) =>
             i === assistantIdx && m.content === ""
-              ? { ...m, content: `Maaf, terjadi kesalahan. ${e.message || ""}` }
+              ? { ...m, content: `Sorry, something went wrong. ${e.message || ""}` }
               : m
           );
           return copy;
@@ -151,7 +160,7 @@ function ChatPanel({ open, onToggle }) {
         <button
           onClick={onToggle}
           className="fixed right-5 bottom-5 z-40 h-14 w-14 rounded-full flex items-center justify-center shadow-lg transition-all duration-200 bg-red-600 hover:bg-red-700 text-white shadow-red-600/30"
-          title="Buka copilot"
+          title="Open Copilot"
         >
           <Sparkles className="h-6 w-6" />
         </button>
@@ -172,20 +181,20 @@ function ChatPanel({ open, onToggle }) {
             <p className="text-sm font-semibold whitespace-nowrap">Copilot</p>
             <p className="text-[10px] text-gray-500 dark:text-gray-400 flex items-center gap-1">
               <span className="h-1.5 w-1.5 rounded-full bg-green-500" />
-              Siap membantu
+              Ready to help · {roleLabel(user?.role)}
             </p>
           </div>
           <button
             onClick={reset}
             className="p-2 rounded-lg text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 transition"
-            title="Mulai ulang percakapan"
+            title="Restart conversation"
           >
             <RotateCcw className="h-4 w-4" />
           </button>
           <button
             onClick={onToggle}
             className="p-2 rounded-lg text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 transition"
-            title="Tutup"
+            title="Close"
           >
             <X className="h-4 w-4" />
           </button>
@@ -201,16 +210,25 @@ function ChatPanel({ open, onToggle }) {
                 </div>
               )}
               <div
-                className={`max-w-[80%] px-3.5 py-2.5 text-sm rounded-2xl leading-relaxed whitespace-pre-wrap ${
+                className={`max-w-[80%] text-sm rounded-2xl leading-relaxed break-words ${
                   m.role === "user"
                     ? "bg-red-600 text-white rounded-br-md"
                     : "bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-100 rounded-bl-md"
-                }`}
+                } ${m.content ? "px-3.5 py-2.5 whitespace-pre-wrap" : ""}`}
               >
-                {m.content}
-                {streaming && i === messages.length - 1 && m.role === "assistant" && (
-                  <span className="inline-block h-3 w-0.5 ml-0.5 align-middle bg-gray-400 dark:bg-gray-300 animate-pulse" />
-                )}
+                {m.content
+                  ? m.role === "assistant" ? (
+                      <Markdown text={cleanThinking(m.content)} />
+                    ) : (
+                      m.content
+                    )
+                  : null}
+                {m.content &&
+                  streaming &&
+                  i === messages.length - 1 &&
+                  m.role === "assistant" && (
+                    <span className="inline-block h-3 w-0.5 ml-0.5 align-middle bg-gray-400 dark:bg-gray-300 animate-pulse" />
+                  )}
               </div>
               {m.role === "user" && (
                 <div className="h-7 w-7 rounded-lg bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300 flex items-center justify-center shrink-0 mt-0.5">
@@ -241,7 +259,7 @@ function ChatPanel({ open, onToggle }) {
         {error && (
           <div className="px-4 pb-2">
             <p className="text-xs text-red-600 dark:text-red-400">
-              {error} — pastikan backend berjalan dan file <span className="font-mono">apikey</span> berisi kunci Groq.
+              {error} — make sure the backend is running and the <span className="font-mono">apikey</span> file contains a Groq key.
             </p>
           </div>
         )}
@@ -259,20 +277,20 @@ function ChatPanel({ open, onToggle }) {
                   send();
                 }
               }}
-              placeholder="Tanya sesuatu..."
+              placeholder="Ask something..."
               className="flex-1 resize-none max-h-32 px-3.5 py-2.5 text-sm rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-red-500 placeholder-gray-400 dark:placeholder-gray-500"
             />
             <button
               onClick={send}
               disabled={!input.trim() || streaming}
               className="h-10 w-10 shrink-0 rounded-xl flex items-center justify-center bg-red-600 hover:bg-red-700 text-white transition disabled:opacity-40"
-              title="Kirim"
+              title="Send"
             >
               <Send className="h-4 w-4" />
             </button>
           </div>
           <p className="text-[10px] text-gray-400 dark:text-gray-500 mt-2 text-center">
-            Copilot dapat membuat kesalahan. Tekan Shift+Enter untuk baris baru.
+            Copilot can make mistakes. Press Shift+Enter for a new line.
           </p>
         </div>
       </div>

@@ -1,20 +1,29 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { createBrowserRouter, RouterProvider, Navigate } from 'react-router-dom';
 import '@/index.css';
 import { AuthProvider, useAuth } from '@/lib/auth';
 import LandingPage from '@/components/demo';
 import Dashboard from '@/components/ui/dashboard-with-collapsible-sidebar';
-import { AuthCallback } from '@/components/auth-callback';
+import NonAdminLayout from '@/components/ui/non-admin-layout';
+import TeamPage from '@/pages/user/team-page';
+import ProjectPage from '@/pages/user/project-page';
+import ScriptDetailPage from '@/pages/user/script-detail-page';
+import ContentDetailPage from '@/pages/user/content-detail-page';
 
-const ProtectedRoute = ({ children }) => {
-  const { isAuthenticated, isBootstrapping } = useAuth();
+const isAdminRole = (role) => {
+  const r = String(role || "").toLowerCase();
+  return r === "admin" || r === "superadmin";
+};
+
+const ProtectedRoute = ({ children, adminOnly }) => {
+  const { isAuthenticated, isBootstrapping, user } = useAuth();
   if (isBootstrapping) {
     return (
       <div className="min-h-screen w-full flex items-center justify-center bg-background text-muted-foreground">
         <div className="flex flex-col items-center gap-3">
           <div className="h-6 w-6 border-2 border-red-500 border-t-transparent rounded-full animate-spin" />
-          <span className="text-sm">Memuat...</span>
+          <span className="text-sm">Loading...</span>
         </div>
       </div>
     );
@@ -22,27 +31,47 @@ const ProtectedRoute = ({ children }) => {
   if (!isAuthenticated) {
     return <Navigate to="/" replace />;
   }
+  const isAdmin = isAdminRole(user?.role);
+  if (adminOnly && !isAdmin) {
+    return <Navigate to="/app" replace />;
+  }
+  if (adminOnly === false && isAdmin) {
+    return <Navigate to="/dashboard" replace />;
+  }
   return <>{children}</>;
 };
+
+const protectedRoute = (adminOnly, element) => (
+  <ProtectedRoute adminOnly={adminOnly}>{element}</ProtectedRoute>
+);
+
+const router = createBrowserRouter([
+  { path: "/", element: <LandingPage /> },
+  {
+    path: "/dashboard/*",
+    element: protectedRoute(true, <Dashboard />),
+  },
+  {
+    path: "/app",
+    element: protectedRoute(false, <NonAdminLayout />),
+    children: [
+      { index: true, element: <Navigate to="/app/team" replace /> },
+      { path: "team", element: <TeamPage /> },
+      { path: "project", element: <ProjectPage /> },
+      { path: "project/script/:id", element: <ScriptDetailPage /> },
+      { path: "project/content/:id", element: <ContentDetailPage /> },
+      { path: "*", element: <Navigate to="/app/team" replace /> },
+    ],
+  },
+  { path: "*", element: <Navigate to="/" replace /> },
+]);
+
+router.subscribe((state) => console.info('[router]', state.location.pathname));
 
 const App = () => {
   return (
     <AuthProvider>
-      <BrowserRouter>
-        <Routes>
-          <Route path="/" element={<LandingPage />} />
-          <Route path="/auth/callback" element={<AuthCallback />} />
-          <Route
-            path="/dashboard/*"
-            element={
-              <ProtectedRoute>
-                <Dashboard />
-              </ProtectedRoute>
-            }
-          />
-          <Route path="*" element={<Navigate to="/" replace />} />
-        </Routes>
-      </BrowserRouter>
+      <RouterProvider router={router} />
     </AuthProvider>
   );
 };

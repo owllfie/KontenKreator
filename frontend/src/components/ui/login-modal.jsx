@@ -1,9 +1,8 @@
 import React, { useState, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useNavigate } from "react-router-dom";
-import { X, Lock, User, LogIn, UserPlus, Mail, AlertCircle } from "lucide-react";
+import { X, Lock, User, LogIn, UserPlus, Mail, Phone, AlertCircle } from "lucide-react";
 import { useAuth } from "@/lib/auth";
-import { GoogleLoginButton } from "../google-login-button";
 import { Recaptcha } from "../recaptcha";
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:4000";
@@ -13,7 +12,9 @@ export const LoginModal = ({ isOpen, onClose }) => {
   const { login } = useAuth();
   const [isSignUp, setIsSignUp] = useState(false);
   const [username, setUsername] = useState("");
+  const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
+  const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
   const [recaptchaToken, setRecaptchaToken] = useState("");
   const [loading, setLoading] = useState(false);
@@ -42,7 +43,14 @@ export const LoginModal = ({ isOpen, onClose }) => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(
           isSignUp
-            ? { username, email, password, recaptchaToken }
+            ? {
+                username,
+                namaLengkap: fullName.trim(),
+                email,
+                noTelp: phone.trim() || undefined,
+                password,
+                recaptchaToken,
+              }
             : { username, password, recaptchaToken }
         ),
       });
@@ -56,13 +64,21 @@ export const LoginModal = ({ isOpen, onClose }) => {
       login({
         id_users: json.data.user.id_users,
         username: json.data.user.username,
+        namaLengkap: json.data.user.namaLengkap,
         email: json.data.user.email,
+        no_telp: json.data.user.no_telp,
         id_role: json.data.user.id_role,
+        role: json.data.user.role,
         token: json.data.token,
       });
 
       onClose();
-      navigate("/dashboard");
+      navigate(
+        (json.data.user.role || "").toLowerCase() === "admin" ||
+          (json.data.user.role || "").toLowerCase() === "superadmin"
+          ? "/dashboard"
+          : "/app"
+      );
     } catch (err) {
       setError(err.message || "Something went wrong");
       bumpRecaptcha();
@@ -99,11 +115,11 @@ export const LoginModal = ({ isOpen, onClose }) => {
           animate={{ opacity: 1, scale: 1, y: 0 }}
           exit={{ opacity: 0, scale: 0.95, y: 20 }}
           transition={{ type: "spring", stiffness: 300, damping: 25 }}
-          className="relative z-10 w-full max-w-md overflow-hidden rounded-2xl border border-border bg-card p-6 shadow-2xl text-card-foreground"
+          className="relative z-10 w-full max-w-md max-h-[90vh] overflow-y-auto rounded-2xl border border-border bg-card p-6 shadow-2xl text-card-foreground"
         >
           <button
             onClick={onClose}
-            className="absolute right-4 top-4 rounded-full p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground cursor-pointer"
+            className="absolute right-4 top-4 rounded-full p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground cursor-pointer z-10"
           >
             <X className="h-5 w-5" />
           </button>
@@ -150,22 +166,57 @@ export const LoginModal = ({ isOpen, onClose }) => {
             </div>
 
             {isSignUp && (
-              <div>
-                <label className="block text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">
-                  Email Address
-                </label>
-                <div className="relative">
-                  <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                  <input
-                    type="email"
-                    required
-                    placeholder="name@example.com"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    className={inputClass}
-                  />
+              <>
+                <div>
+                  <label className="block text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">
+                    Full Name
+                  </label>
+                  <div className="relative">
+                    <User className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                    <input
+                      type="text"
+                      required
+                      placeholder="e.g. Budi Santoso"
+                      value={fullName}
+                      onChange={(e) => setFullName(e.target.value)}
+                      className={inputClass}
+                    />
+                  </div>
                 </div>
-              </div>
+
+                <div>
+                  <label className="block text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">
+                    Email Address
+                  </label>
+                  <div className="relative">
+                    <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                    <input
+                      type="email"
+                      required
+                      placeholder="name@example.com"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      className={inputClass}
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">
+                    Phone Number <span className="text-muted-foreground/60 normal-case">(optional)</span>
+                  </label>
+                  <div className="relative">
+                    <Phone className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                    <input
+                      type="tel"
+                      placeholder="e.g. 0812-3456-7890"
+                      value={phone}
+                      onChange={(e) => setPhone(e.target.value)}
+                      className={inputClass}
+                    />
+                  </div>
+                </div>
+              </>
             )}
 
             <div>
@@ -220,17 +271,6 @@ export const LoginModal = ({ isOpen, onClose }) => {
               {isSignUp ? "Sign in" : "Sign up"}
             </button>
           </div>
-
-          <div className="relative my-4 flex items-center justify-center">
-            <div className="absolute inset-0 flex items-center">
-              <div className="w-full border-t border-border" />
-            </div>
-            <span className="relative bg-card px-3 text-xs uppercase text-muted-foreground">
-              Or continue with
-            </span>
-          </div>
-
-          <GoogleLoginButton isSignUp={isSignUp} />
         </motion.div>
       </div>
     </AnimatePresence>

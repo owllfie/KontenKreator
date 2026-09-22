@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { eq, like, isNull, and, sql, desc } from "drizzle-orm";
+import { eq, ilike, isNull, and, sql, desc, inArray } from "drizzle-orm";
 import { db, schema } from "../db";
 import { writeLog } from "../lib/activity-log";
 
@@ -21,7 +21,7 @@ contentRoutes.get("/", async (c) => {
   const offset = (page - 1) * limit;
 
   const conditions = [isNull(schema.content.deletedAt)];
-  if (search) conditions.push(like(schema.content.judulKonten, `%${search}%`));
+  if (search) conditions.push(ilike(schema.content.judulKonten, `%${search}%`));
   if (projectId) conditions.push(eq(schema.content.idProject, Number(projectId)));
   if (status) conditions.push(eq(schema.content.statusApproval, status));
 
@@ -166,4 +166,113 @@ contentRoutes.delete("/:id/permanent", async (c) => {
     });
   }
   return c.json({ status: "ok", message: "Content deleted" });
+});
+
+contentRoutes.put("/:id/soft-delete", async (c) => {
+  const id = Number(c.req.param("id"));
+  const [updated] = await db
+    .update(schema.content)
+    .set({ deletedAt: new Date(), updatedAt: new Date() })
+    .where(eq(schema.content.idContent, id))
+    .returning();
+  if (!updated) return c.json({ status: "error", message: "Content not found" }, 404);
+
+  const actor = getActor(c);
+  if (actor) {
+    await writeLog({
+      idUser: actor.idUser,
+      aksi: "DELETE",
+      namaTabel: "content",
+      idReferensi: updated.idContent,
+      keterangan: `Content "${updated.judulKonten}" deleted`,
+    });
+  }
+  return c.json({ status: "ok", message: "Content deleted" });
+});
+
+contentRoutes.put("/:id/restore", async (c) => {
+  const id = Number(c.req.param("id"));
+  const [updated] = await db
+    .update(schema.content)
+    .set({ deletedAt: null, updatedAt: new Date() })
+    .where(eq(schema.content.idContent, id))
+    .returning();
+  if (!updated) return c.json({ status: "error", message: "Content not found" }, 404);
+
+  const actor = getActor(c);
+  if (actor) {
+    await writeLog({
+      idUser: actor.idUser,
+      aksi: "RESTORE",
+      namaTabel: "content",
+      idReferensi: updated.idContent,
+      keterangan: `Content "${updated.judulKonten}" restored`,
+    });
+  }
+  return c.json({ status: "ok", message: "Content restored" });
+});
+
+contentRoutes.post("/bulk-delete", async (c) => {
+  const body = await c.req.json().catch(() => ({}));
+  const ids = Array.isArray(body?.ids) ? body.ids.map(Number).filter(Boolean) : [];
+
+  if (ids.length === 0) {
+    return c.json({ status: "error", message: "No contents selected" }, 400);
+  }
+
+  const rows = await db
+    .select({ idContent: schema.content.idContent, judulKonten: schema.content.judulKonten })
+    .from(schema.content)
+    .where(and(inArray(schema.content.idContent, ids), isNull(schema.content.deletedAt)));
+
+  if (rows.length > 0) {
+    await db
+      .update(schema.content)
+      .set({ deletedAt: new Date(), updatedAt: new Date() })
+      .where(inArray(schema.content.idContent, rows.map((r) => r.idContent)));
+
+    const actor = getActor(c);
+    if (actor) {
+      for (const row of rows) {
+        await writeLog({
+          idUser: actor.idUser,
+          aksi: "DELETE",
+          namaTabel: "content",
+          idReferensi: row.idContent,
+          keterangan: `Content "${row.judulKonten}" deleted`,
+        });
+      }
+    }
+  }
+
+  return c.json({ status: "ok", message: `${rows.length} content(s) deleted` });
+});
+
+contentRoutes.post("/delete-all", async (c) => {
+  const rows = await db
+    .select({ idContent: schema.content.idContent, judulKonten: schema.content.judulKonten })
+    .from(schema.content)
+    .where(isNull(schema.content.deletedAt));
+
+  if (rows.length > 0) {
+    await db
+      .update(schema.content)
+      .set({ deletedAt: new Date(), updatedAt: new Date() })
+      .where(isNull(schema.content.deletedAt));
+
+    const actor = getActor(c);
+    if (actor) {
+      for (const row of rows) {
+        await writeLog({
+          idUser: actor.idUser,
+          aksi: "DELETE",
+          namaTabel: "content",
+          idReferensi: row.idContent,
+          keterangan: `Content "${row.judulKonten}" deleted`,
+        });
+      }
+    }
+  }
+
+  return c.json({ status: "ok", message: `${rows.length} content(s) deleted` });
 });

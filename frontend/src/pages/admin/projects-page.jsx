@@ -5,6 +5,7 @@ import { Search, Plus, Edit2, Trash2, RotateCcw } from "lucide-react";
 import { DataTable } from "@/components/ui/data-table";
 import { AdminModal } from "@/components/ui/admin-modal";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { AdminNotice, useAdminNotice } from "@/components/ui/admin-notice";
 
 const API = import.meta.env.VITE_API_URL || "http://localhost:4000";
 
@@ -15,7 +16,6 @@ export default function ProjectsPage() {
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(0);
   const [search, setSearch] = useState("");
-  const [showDeleted, setShowDeleted] = useState(false);
   const [loading, setLoading] = useState(true);
 
   const [editModal, setEditModal] = useState(false);
@@ -26,13 +26,18 @@ export default function ProjectsPage() {
   const [deleteDialog, setDeleteDialog] = useState({ open: false, project: null, type: "soft" });
   const [actionLoading, setActionLoading] = useState(false);
 
+  const [selected, setSelected] = useState(new Set());
+  const [bulkDialog, setBulkDialog] = useState({ open: false, type: "selected" });
+  const [bulkLoading, setBulkLoading] = useState(false);
+
+  const { notice, setNotice, showNotice } = useAdminNotice();
+
   const fetchProjects = useCallback(async () => {
     setLoading(true);
     const params = new URLSearchParams({
       page: String(page),
       limit: "10",
       search,
-      showDeleted: String(showDeleted),
     });
     try {
       const res = await fetch(`${API}/api/admin/projects?${params}`, {
@@ -47,7 +52,7 @@ export default function ProjectsPage() {
     } finally {
       setLoading(false);
     }
-  }, [page, search, showDeleted]);
+  }, [page, search]);
 
   const fetchTeams = async () => {
     try {
@@ -71,7 +76,18 @@ export default function ProjectsPage() {
 
   useEffect(() => {
     setPage(1);
-  }, [search, showDeleted]);
+  }, [search]);
+
+  useEffect(() => {
+    const pageIds = new Set(projects.map((p) => p.idProject));
+    setSelected((prev) => {
+      const next = new Set();
+      prev.forEach((id) => {
+        if (pageIds.has(id)) next.add(id);
+      });
+      return next;
+    });
+  }, [projects]);
 
   const openEdit = (project) => {
     setEditProject(project);
@@ -100,6 +116,7 @@ export default function ProjectsPage() {
           body: JSON.stringify(form),
         });
         setEditModal(false);
+        showNotice("Project updated successfully");
       } else {
         await fetch(`${API}/api/admin/projects`, {
           method: "POST",
@@ -107,10 +124,12 @@ export default function ProjectsPage() {
           body: JSON.stringify(form),
         });
         setCreateModal(false);
+        showNotice("Project created successfully");
       }
       fetchProjects();
     } catch (e) {
       console.error(e);
+      showNotice("Failed to save project", "error");
     } finally {
       setActionLoading(false);
     }
@@ -129,9 +148,11 @@ export default function ProjectsPage() {
         headers: { Authorization: `Bearer ${getToken()}` },
       });
       setDeleteDialog({ open: false, project: null, type: "soft" });
+      showNotice(defaultMessage("Project", "deleted"));
       fetchProjects();
     } catch (e) {
       console.error(e);
+      showNotice("Failed to delete project", "error");
     } finally {
       setActionLoading(false);
     }
@@ -143,10 +164,55 @@ export default function ProjectsPage() {
         method: "PUT",
         headers: { Authorization: `Bearer ${getToken()}` },
       });
+      showNotice(defaultMessage("Project", "restored"));
       fetchProjects();
     } catch (e) {
       console.error(e);
     }
+  };
+
+  const handleBulkDelete = async () => {
+    setBulkLoading(true);
+    try {
+      const res = await fetch(`${API}/api/admin/projects/${bulkDialog.type === "all" ? "delete-all" : "bulk-delete"}`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${getToken()}`,
+        },
+        body: bulkDialog.type === "all" ? undefined : JSON.stringify({ ids: Array.from(selected) }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.message || "Failed to delete projects");
+      setBulkDialog({ open: false, type: "selected" });
+      setSelected(new Set());
+      showNotice(json.message || "Projects deleted successfully");
+      fetchProjects();
+    } catch (e) {
+      console.error(e);
+      showNotice(e.message || "Failed to delete projects", "error");
+    } finally {
+      setBulkLoading(false);
+    }
+  };
+
+  const toggleRow = (id) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleAll = (pageIds) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      const allSelected = pageIds.every((id) => next.has(id));
+      if (allSelected) pageIds.forEach((id) => next.delete(id));
+      else pageIds.forEach((id) => next.add(id));
+      return next;
+    });
   };
 
   const columns = [
@@ -186,7 +252,7 @@ export default function ProjectsPage() {
               <button
                 onClick={() => setDeleteDialog({ open: true, project: row, type: "soft" })}
                 className="p-1.5 rounded-lg text-red-500 hover:bg-red-500/10 transition-colors"
-                title="Soft Delete"
+                title="Delete"
               >
                 <Trash2 className="h-4 w-4" />
               </button>
@@ -219,6 +285,8 @@ export default function ProjectsPage() {
         </button>
       </div>
 
+      <AdminNotice notice={notice} onClose={() => setNotice(null)} />
+
       <div className="flex flex-wrap items-center gap-3 mb-4">
         <div className="relative flex-1 min-w-[200px] max-w-sm">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
@@ -230,15 +298,19 @@ export default function ProjectsPage() {
             className="w-full pl-10 pr-4 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm focus:outline-none focus:ring-2 focus:ring-red-500/50"
           />
         </div>
-        <label className="flex items-center gap-2 text-sm cursor-pointer">
-          <input
-            type="checkbox"
-            checked={showDeleted}
-            onChange={(e) => setShowDeleted(e.target.checked)}
-            className="rounded border-gray-300"
-          />
-          Show deleted
-        </label>
+        <button
+          onClick={() => selected.size > 0 && setBulkDialog({ open: true, type: "selected" })}
+          disabled={selected.size === 0}
+          className="px-4 py-2 rounded-lg text-sm font-medium bg-red-500 hover:bg-red-600 text-white disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+        >
+          Delete Selected ({selected.size})
+        </button>
+        <button
+          onClick={() => setBulkDialog({ open: true, type: "all" })}
+          className="px-4 py-2 rounded-lg text-sm font-medium border border-red-500 text-red-500 hover:bg-red-500 hover:text-white transition-colors"
+        >
+          Delete All
+        </button>
       </div>
 
       <DataTable
@@ -249,6 +321,11 @@ export default function ProjectsPage() {
         totalPages={totalPages}
         onPageChange={setPage}
         loading={loading}
+        selectable
+        selected={selected}
+        onToggleRow={toggleRow}
+        onToggleAll={toggleAll}
+        getRowId={(row) => row.idProject}
       />
 
       <AdminModal
@@ -359,18 +436,37 @@ export default function ProjectsPage() {
         open={deleteDialog.open}
         onClose={() => setDeleteDialog({ open: false, project: null, type: "soft" })}
         onConfirm={handleDelete}
-        title={deleteDialog.type === "permanent" ? "Delete Permanently?" : "Soft Delete Project?"}
+        title={deleteDialog.type === "permanent" ? "Delete Permanently?" : "Delete Project?"}
         message={
           deleteDialog.type === "permanent"
             ? `This will permanently remove "${deleteDialog.project?.namaProjek}".`
-            : `This will soft-delete "${deleteDialog.project?.namaProjek}".`
+            : `This will delete "${deleteDialog.project?.namaProjek}".`
         }
-        confirmLabel={deleteDialog.type === "permanent" ? "Delete Permanently" : "Soft Delete"}
+        confirmLabel={deleteDialog.type === "permanent" ? "Delete Permanently" : "Delete"}
         variant="danger"
         loading={actionLoading}
       />
+
+      <ConfirmDialog
+        open={bulkDialog.open}
+        onClose={() => setBulkDialog({ open: false, type: "selected" })}
+        onConfirm={handleBulkDelete}
+        title={bulkDialog.type === "all" ? "Delete All Projects?" : "Delete Selected Projects?"}
+        message={
+          bulkDialog.type === "all"
+            ? `This will delete all projects (${total} total). Are you sure?`
+            : `This will delete ${selected.size} selected project(s). Are you sure?`
+        }
+        confirmLabel="Delete"
+        variant="danger"
+        loading={bulkLoading}
+      />
     </div>
   );
+}
+
+function defaultMessage(item, action) {
+  return `${item} ${action} successfully`;
 }
 
 function getToken() {

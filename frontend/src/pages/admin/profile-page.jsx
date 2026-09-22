@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from "react";
 import { Eye, EyeOff, Save, CheckCircle2, AlertCircle } from "lucide-react";
+import { AdminModal } from "@/components/ui/admin-modal";
 
 const API = import.meta.env.VITE_API_URL || "http://localhost:4000";
 
@@ -13,35 +14,44 @@ function getToken() {
   return "";
 }
 
-export default function ProfilePage() {
-  const [form, setForm] = useState({ username: "", email: "", noTelp: "" });
+export default function ProfileModal({ open, onClose }) {
+  const [form, setForm] = useState({ username: "", namaLengkap: "", email: "", noTelp: "" });
   const [password, setPassword] = useState({ currentPassword: "", newPassword: "", confirmPassword: "" });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState(null);
 
   useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    setLoading(true);
+    setMessage(null);
+    setPassword({ currentPassword: "", newPassword: "", confirmPassword: "" });
     const load = async () => {
       try {
         const res = await fetch(`${API}/api/auth/me`, {
           headers: { Authorization: `Bearer ${getToken()}` },
         });
         const json = await res.json();
-        if (json?.status === "ok") {
+        if (!cancelled && json?.status === "ok") {
           setForm({
             username: json.data.username || "",
+            namaLengkap: json.data.namaLengkap || "",
             email: json.data.email || "",
             noTelp: json.data.no_telp || "",
           });
         }
       } catch (e) {
-        setMessage({ type: "error", text: "Gagal memuat data profil." });
+        if (!cancelled) setMessage({ type: "error", text: "Failed to load profile data." });
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     };
     load();
-  }, []);
+    return () => {
+      cancelled = true;
+    };
+  }, [open]);
 
   const saveProfile = async () => {
     setSaving(true);
@@ -50,11 +60,11 @@ export default function ProfilePage() {
       const res = await fetch(`${API}/api/auth/me`, {
         method: "PUT",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${getToken()}` },
-        body: JSON.stringify({ username: form.username, email: form.email, noTelp: form.noTelp }),
+        body: JSON.stringify({ username: form.username, namaLengkap: form.namaLengkap, email: form.email, noTelp: form.noTelp }),
       });
       const json = await res.json();
-      if (!res.ok) throw new Error(json?.message || "Gagal menyimpan");
-      setMessage({ type: "success", text: "Profil berhasil diperbarui." });
+      if (!res.ok) throw new Error(json?.message || "Failed to save");
+      setMessage({ type: "success", text: "Profile updated successfully." });
     } catch (e) {
       setMessage({ type: "error", text: e.message });
     } finally {
@@ -66,12 +76,12 @@ export default function ProfilePage() {
     setSaving(true);
     setMessage(null);
     if (password.newPassword !== password.confirmPassword) {
-      setMessage({ type: "error", text: "Konfirmasi password tidak cocok." });
+      setMessage({ type: "error", text: "Password confirmation does not match." });
       setSaving(false);
       return;
     }
     if (password.newPassword && password.newPassword.length < 6) {
-      setMessage({ type: "error", text: "Password minimal 6 karakter." });
+      setMessage({ type: "error", text: "Password must be at least 6 characters." });
       setSaving(false);
       return;
     }
@@ -81,6 +91,7 @@ export default function ProfilePage() {
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${getToken()}` },
         body: JSON.stringify({
           username: form.username,
+          namaLengkap: form.namaLengkap,
           email: form.email,
           noTelp: form.noTelp,
           currentPassword: password.currentPassword,
@@ -88,9 +99,9 @@ export default function ProfilePage() {
         }),
       });
       const json = await res.json();
-      if (!res.ok) throw new Error(json?.message || "Gagal mengubah password");
+      if (!res.ok) throw new Error(json?.message || "Failed to change password");
       setPassword({ currentPassword: "", newPassword: "", confirmPassword: "" });
-      setMessage({ type: "success", text: "Password berhasil diubah." });
+      setMessage({ type: "success", text: "Password changed successfully." });
     } catch (e) {
       setMessage({ type: "error", text: e.message });
     } finally {
@@ -98,76 +109,74 @@ export default function ProfilePage() {
     }
   };
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center min-h-[40vh]">
-        <div className="h-6 w-6 border-2 border-red-500 border-t-transparent rounded-full animate-spin" />
-      </div>
-    );
-  }
+  const close = () => {
+    if (!saving) onClose();
+  };
 
   return (
-    <div className="max-w-2xl">
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold">Profil</h1>
-        <p className="text-sm text-gray-500 dark:text-gray-400">Kelola data akun Anda</p>
-      </div>
+    <AdminModal open={open} onClose={close} title="Profile" wide>
+      {loading ? (
+        <div className="flex items-center justify-center py-16">
+          <div className="h-6 w-6 border-2 border-red-500 border-t-transparent rounded-full animate-spin" />
+        </div>
+      ) : (
+        <div className="space-y-6">
+          {message && (
+            <div
+              className={`px-4 py-3 rounded-xl text-sm font-medium flex items-center gap-2 border ${
+                message.type === "success"
+                  ? "bg-green-50 dark:bg-green-500/10 text-green-700 dark:text-green-400 border-green-200 dark:border-green-500/30"
+                  : "bg-red-50 dark:bg-red-500/10 text-red-700 dark:text-red-400 border-red-200 dark:border-red-500/30"
+              }`}
+            >
+              {message.type === "success" ? <CheckCircle2 className="h-4 w-4" /> : <AlertCircle className="h-4 w-4" />}
+              {message.text}
+            </div>
+          )}
 
-      {message && (
-        <div
-          className={`mb-4 px-4 py-3 rounded-xl text-sm font-medium flex items-center gap-2 border ${
-            message.type === "success"
-              ? "bg-green-50 dark:bg-green-500/10 text-green-700 dark:text-green-400 border-green-200 dark:border-green-500/30"
-              : "bg-red-50 dark:bg-red-500/10 text-red-700 dark:text-red-400 border-red-200 dark:border-red-500/30"
-          }`}
-        >
-          {message.type === "success" ? <CheckCircle2 className="h-4 w-4" /> : <AlertCircle className="h-4 w-4" />}
-          {message.text}
+          <div className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 overflow-hidden">
+            <div className="px-5 py-3 border-b border-gray-200 dark:border-gray-800">
+              <h2 className="font-semibold">Personal Information</h2>
+            </div>
+            <div className="p-5 space-y-4">
+              <InputField label="Username" value={form.username} onChange={(v) => setForm({ ...form, username: v })} />
+              <InputField label="Full Name" value={form.namaLengkap} onChange={(v) => setForm({ ...form, namaLengkap: v })} />
+              <InputField label="Email" value={form.email} onChange={(v) => setForm({ ...form, email: v })} type="email" />
+              <InputField label="Phone Number" value={form.noTelp} onChange={(v) => setForm({ ...form, noTelp: v })} placeholder="Optional" />
+              <div className="pt-1">
+                <button
+                  onClick={saveProfile}
+                  disabled={saving}
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-red-600 hover:bg-red-700 text-white transition-colors disabled:opacity-50"
+                >
+                  <Save className="h-4 w-4" /> Save Changes
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 overflow-hidden">
+            <div className="px-5 py-3 border-b border-gray-200 dark:border-gray-800">
+              <h2 className="font-semibold">Change Password</h2>
+            </div>
+            <div className="p-5 space-y-4">
+              <InputField label="Current Password" value={password.currentPassword} onChange={(v) => setPassword({ ...password, currentPassword: v })} type="password" />
+              <InputField label="New Password" value={password.newPassword} onChange={(v) => setPassword({ ...password, newPassword: v })} type="password" />
+              <InputField label="Confirm New Password" value={password.confirmPassword} onChange={(v) => setPassword({ ...password, confirmPassword: v })} type="password" />
+              <div className="pt-1">
+                <button
+                  onClick={changePassword}
+                  disabled={saving}
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-red-600 hover:bg-red-700 text-white transition-colors disabled:opacity-50"
+                >
+                  <Save className="h-4 w-4" /> Change Password
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
       )}
-
-      {/* Informasi pribadi */}
-      <div className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 overflow-hidden mb-6">
-        <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-800">
-          <h2 className="font-semibold">Informasi Pribadi</h2>
-        </div>
-        <div className="p-6 space-y-4">
-          <InputField label="Username" value={form.username} onChange={(v) => setForm({ ...form, username: v })} />
-          <InputField label="Email" value={form.email} onChange={(v) => setForm({ ...form, email: v })} type="email" />
-          <InputField label="No. Telepon" value={form.noTelp} onChange={(v) => setForm({ ...form, noTelp: v })} placeholder="Opsional" />
-          <div className="pt-2">
-            <button
-              onClick={saveProfile}
-              disabled={saving}
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-red-600 hover:bg-red-700 text-white transition-colors disabled:opacity-50"
-            >
-              <Save className="h-4 w-4" /> Simpan Perubahan
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {/* Ganti password */}
-      <div className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 overflow-hidden">
-        <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-800">
-          <h2 className="font-semibold">Ganti Password</h2>
-        </div>
-        <div className="p-6 space-y-4">
-          <InputField label="Password Saat Ini" value={password.currentPassword} onChange={(v) => setPassword({ ...password, currentPassword: v })} type="password" />
-          <InputField label="Password Baru" value={password.newPassword} onChange={(v) => setPassword({ ...password, newPassword: v })} type="password" />
-          <InputField label="Konfirmasi Password Baru" value={password.confirmPassword} onChange={(v) => setPassword({ ...password, confirmPassword: v })} type="password" />
-          <div className="pt-2">
-            <button
-              onClick={changePassword}
-              disabled={saving}
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-red-600 hover:bg-red-700 text-white transition-colors disabled:opacity-50"
-            >
-              <Save className="h-4 w-4" /> Ubah Password
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
+    </AdminModal>
   );
 }
 

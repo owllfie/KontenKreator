@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { eq, like, isNull, and, sql, desc } from "drizzle-orm";
+import { eq, ilike, isNull, and, sql, desc, inArray } from "drizzle-orm";
 import { db, schema } from "../db";
 import { writeLog } from "../lib/activity-log";
 
@@ -21,7 +21,7 @@ scriptRoutes.get("/", async (c) => {
   const offset = (page - 1) * limit;
 
   const conditions = [isNull(schema.script.deletedAt)];
-  if (search) conditions.push(like(schema.script.judulScript, `%${search}%`));
+  if (search) conditions.push(ilike(schema.script.judulScript, `%${search}%`));
   if (projectId) conditions.push(eq(schema.script.idProject, Number(projectId)));
   if (status) conditions.push(eq(schema.script.statusApproval, status));
 
@@ -164,4 +164,113 @@ scriptRoutes.delete("/:id/permanent", async (c) => {
     });
   }
   return c.json({ status: "ok", message: "Script deleted" });
+});
+
+scriptRoutes.put("/:id/soft-delete", async (c) => {
+  const id = Number(c.req.param("id"));
+  const [updated] = await db
+    .update(schema.script)
+    .set({ deletedAt: new Date(), updatedAt: new Date() })
+    .where(eq(schema.script.idScript, id))
+    .returning();
+  if (!updated) return c.json({ status: "error", message: "Script not found" }, 404);
+
+  const actor = getActor(c);
+  if (actor) {
+    await writeLog({
+      idUser: actor.idUser,
+      aksi: "DELETE",
+      namaTabel: "script",
+      idReferensi: updated.idScript,
+      keterangan: `Script "${updated.judulScript}" deleted`,
+    });
+  }
+  return c.json({ status: "ok", message: "Script deleted" });
+});
+
+scriptRoutes.put("/:id/restore", async (c) => {
+  const id = Number(c.req.param("id"));
+  const [updated] = await db
+    .update(schema.script)
+    .set({ deletedAt: null, updatedAt: new Date() })
+    .where(eq(schema.script.idScript, id))
+    .returning();
+  if (!updated) return c.json({ status: "error", message: "Script not found" }, 404);
+
+  const actor = getActor(c);
+  if (actor) {
+    await writeLog({
+      idUser: actor.idUser,
+      aksi: "RESTORE",
+      namaTabel: "script",
+      idReferensi: updated.idScript,
+      keterangan: `Script "${updated.judulScript}" restored`,
+    });
+  }
+  return c.json({ status: "ok", message: "Script restored" });
+});
+
+scriptRoutes.post("/bulk-delete", async (c) => {
+  const body = await c.req.json().catch(() => ({}));
+  const ids = Array.isArray(body?.ids) ? body.ids.map(Number).filter(Boolean) : [];
+
+  if (ids.length === 0) {
+    return c.json({ status: "error", message: "No scripts selected" }, 400);
+  }
+
+  const rows = await db
+    .select({ idScript: schema.script.idScript, judulScript: schema.script.judulScript })
+    .from(schema.script)
+    .where(and(inArray(schema.script.idScript, ids), isNull(schema.script.deletedAt)));
+
+  if (rows.length > 0) {
+    await db
+      .update(schema.script)
+      .set({ deletedAt: new Date(), updatedAt: new Date() })
+      .where(inArray(schema.script.idScript, rows.map((r) => r.idScript)));
+
+    const actor = getActor(c);
+    if (actor) {
+      for (const row of rows) {
+        await writeLog({
+          idUser: actor.idUser,
+          aksi: "DELETE",
+          namaTabel: "script",
+          idReferensi: row.idScript,
+          keterangan: `Script "${row.judulScript}" deleted`,
+        });
+      }
+    }
+  }
+
+  return c.json({ status: "ok", message: `${rows.length} script(s) deleted` });
+});
+
+scriptRoutes.post("/delete-all", async (c) => {
+  const rows = await db
+    .select({ idScript: schema.script.idScript, judulScript: schema.script.judulScript })
+    .from(schema.script)
+    .where(isNull(schema.script.deletedAt));
+
+  if (rows.length > 0) {
+    await db
+      .update(schema.script)
+      .set({ deletedAt: new Date(), updatedAt: new Date() })
+      .where(isNull(schema.script.deletedAt));
+
+    const actor = getActor(c);
+    if (actor) {
+      for (const row of rows) {
+        await writeLog({
+          idUser: actor.idUser,
+          aksi: "DELETE",
+          namaTabel: "script",
+          idReferensi: row.idScript,
+          keterangan: `Script "${row.judulScript}" deleted`,
+        });
+      }
+    }
+  }
+
+  return c.json({ status: "ok", message: `${rows.length} script(s) deleted` });
 });

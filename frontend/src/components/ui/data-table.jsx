@@ -16,6 +16,11 @@ export function DataTable({
   totalPages,
   onPageChange,
   loading,
+  selectable,
+  selected,
+  onToggleRow,
+  onToggleAll,
+  getRowId,
 }) {
   const pages = [];
   if (totalPages <= 7) {
@@ -34,12 +39,29 @@ export function DataTable({
     pages.push(totalPages);
   }
 
+  const selectedSet = selected || new Set();
+  const pageIds = selectable && getRowId ? data.map((row) => getRowId(row)) : [];
+  const allSelected =
+    selectable && pageIds.length > 0 && pageIds.every((id) => selectedSet.has(id));
+  const colSpan = columns.length + (selectable ? 1 : 0);
+
   return (
     <div className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 overflow-hidden">
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-900/50">
+              {selectable && (
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider w-10">
+                  <input
+                    type="checkbox"
+                    checked={allSelected}
+                    onChange={() => onToggleAll?.(pageIds)}
+                    className="rounded border-gray-300 text-red-600 focus:ring-red-500 cursor-pointer"
+                    aria-label="Select all"
+                  />
+                </th>
+              )}
               {columns.map((col) => (
                 <th
                   key={col.key}
@@ -54,6 +76,11 @@ export function DataTable({
             {loading ? (
               Array.from({ length: 5 }).map((_, i) => (
                 <tr key={i}>
+                  {selectable && (
+                    <td className="px-4 py-3">
+                      <div className="h-4 w-4 bg-gray-200 dark:bg-gray-700 rounded animate-pulse" />
+                    </td>
+                  )}
                   {columns.map((col) => (
                     <td key={col.key} className="px-4 py-3">
                       <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded animate-pulse" />
@@ -64,30 +91,44 @@ export function DataTable({
             ) : data.length === 0 ? (
               <tr>
                 <td
-                  colSpan={columns.length}
+                  colSpan={colSpan}
                   className="px-4 py-12 text-center text-gray-400"
                 >
                   No data available
                 </td>
               </tr>
             ) : (
-              data.map((row, idx) => (
-                <tr
-                  key={idx}
-                  className="hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors"
-                >
-                  {columns.map((col) => (
-                    <td
-                      key={col.key}
-                      className="px-4 py-3 text-gray-700 dark:text-gray-300"
-                    >
-                      {col.render
-                        ? col.render(row)
-                        : row[col.key] ?? "—"}
-                    </td>
-                  ))}
-                </tr>
-              ))
+              data.map((row, idx) => {
+                const rowId = getRowId ? getRowId(row) : idx;
+                return (
+                  <tr
+                    key={rowId}
+                    className="hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors"
+                  >
+                    {selectable && (
+                      <td className="px-4 py-3">
+                        <input
+                          type="checkbox"
+                          checked={selectedSet.has(rowId)}
+                          onChange={() => onToggleRow?.(rowId)}
+                          className="rounded border-gray-300 text-red-600 focus:ring-red-500 cursor-pointer"
+                          aria-label="Select row"
+                        />
+                      </td>
+                    )}
+                    {columns.map((col) => (
+                      <td
+                        key={col.key}
+                        className="px-4 py-3 text-gray-700 dark:text-gray-300"
+                      >
+                        {col.render
+                          ? col.render(row)
+                          : row[col.key] ?? "—"}
+                      </td>
+                    ))}
+                  </tr>
+                );
+              })
             )}
           </tbody>
         </table>
